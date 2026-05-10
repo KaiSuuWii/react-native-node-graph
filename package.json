@@ -24,9 +24,12 @@
     "test:renderer-theme": "vitest run packages/renderer-skia/tests/theme.test.ts packages/renderer-skia/tests/scene.test.ts",
     "benchmark:renderer": "vitest run packages/renderer-skia/tests/performance-benchmark.test.ts",
     "release:check": "npm run typecheck && npm run lint && npm run test && npm run benchmark:renderer",
+    "publish:dry-run": "npm run build && npm pack --dry-run --workspace @react-native-node-graph/shared --workspace @react-native-node-graph/core --workspace @react-native-node-graph/renderer-skia --workspace @react-native-node-graph/renderer-svg --workspace @react-native-node-graph/renderer-web --workspace @react-native-node-graph/plugins",
+    "publish:public": "npm publish --workspace @react-native-node-graph/shared && npm publish --workspace @react-native-node-graph/core && npm publish --workspace @react-native-node-graph/renderer-skia && npm publish --workspace @react-native-node-graph/renderer-svg && npm publish --workspace @react-native-node-graph/renderer-web && npm publish --workspace @react-native-node-graph/plugins",
+    "release:publish:public": "npm run release:check && npm run build && npm run publish:public",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "clean": "node --eval \"import('node:fs/promises').then(async fs => { for (const dir of ['packages/core/dist','packages/renderer-skia/dist','packages/renderer-svg/dist','packages/renderer-web/dist','packages/shared/dist','packages/examples/dist','packages/plugins/dist','packages/docs/dist','coverage']) { await fs.rm(dir, { recursive: true, force: true }); } })\""
+    "clean": "node --eval \"import('node:fs/promises').then(async fs => { for (const path of ['packages/core/dist','packages/core/.tsbuildinfo','packages/renderer-skia/dist','packages/renderer-skia/.tsbuildinfo','packages/renderer-svg/dist','packages/renderer-svg/.tsbuildinfo','packages/renderer-web/dist','packages/renderer-web/.tsbuildinfo','packages/shared/dist','packages/shared/.tsbuildinfo','packages/examples/dist','packages/examples/.tsbuildinfo','packages/plugins/dist','packages/plugins/.tsbuildinfo','packages/docs/dist','packages/docs/.tsbuildinfo','coverage']) { await fs.rm(path, { recursive: true, force: true }); } })\""
   },
   "devDependencies": {
     "@types/node": "^24.0.1",

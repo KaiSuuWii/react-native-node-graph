@@ -6,6 +6,9 @@
     },
     {
       "path": "../core/tsconfig.build.json"
+    },
+    {
+      "path": "../renderer-skia/tsconfig.build.json"
     }
   ]
 }

@@ -1,7 +1,7 @@
 {
   "name": "@react-native-node-graph/docs",
   "version": "0.1.0",
-  "private": false,
+  "private": true,
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -15,9 +15,6 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     }
-  },
-  "publishConfig": {
-    "access": "public"
   },
   "repository": {
     "type": "git",

@@ -46,7 +46,7 @@ const createPipelineDocument = (
       ports: isSource
         ? [
             {
-              id: "port_source_out",
+              id: "port_source_out" as `port_${string}`,
               name: "value",
               direction: "output" as const,
               dataType: "number"
@@ -55,7 +55,7 @@ const createPipelineDocument = (
         : isSink
           ? [
               {
-                id: "port_sink_in",
+                id: "port_sink_in" as `port_${string}`,
                 name: "input",
                 direction: "input" as const,
                 dataType: "number"
@@ -63,13 +63,13 @@ const createPipelineDocument = (
             ]
           : [
               {
-                id: "port_mix_in_a",
+                id: "port_mix_in_a" as `port_${string}`,
                 name: "a",
                 direction: "input" as const,
                 dataType: "number"
               },
               {
-                id: "port_mix_out",
+                id: "port_mix_out" as `port_${string}`,
                 name: "result",
                 direction: "output" as const,
                 dataType: "number"
@@ -86,8 +86,8 @@ const createPipelineDocument = (
       id: `edge_${id}_${index}` as const,
       source: sourceNode.id,
       target: targetNode.id,
-      sourcePortId: sourceNode.type === "number" ? "port_source_out" : "port_mix_out",
-      targetPortId: targetNode.type === "display" ? "port_sink_in" : "port_mix_in_a",
+      sourcePortId: (sourceNode.type === "number" ? "port_source_out" : "port_mix_out") as `port_${string}`,
+      targetPortId: (targetNode.type === "display" ? "port_sink_in" : "port_mix_in_a") as `port_${string}`,
       dataType: "number"
     };
   });

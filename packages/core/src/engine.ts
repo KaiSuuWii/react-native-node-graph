@@ -36,6 +36,7 @@ import type {
   Edge,
   ExecutionCacheEntry,
   ExecutionContext,
+  ExecutionInputValue,
   ExecutionPolicy,
   ExecutionResult,
   ExecutionRunHandle,
@@ -1079,16 +1080,16 @@ export const createCoreEngine = (options: CreateCoreEngineOptions = {}): CoreEng
           }
 
           const existing = inputs[edge.targetPortId];
-          const nextValue = upstream.outputs[edge.sourcePortId];
+          const nextValue = upstream.outputs[edge.sourcePortId] as ExecutionInputValue;
           upstreamNodeIds.push(edge.source);
 
           if (existing === undefined) {
             inputs[edge.targetPortId] = nextValue;
           } else if (Array.isArray(existing)) {
             const existingValues: readonly unknown[] = existing;
-            inputs[edge.targetPortId] = [...existingValues, nextValue];
+            inputs[edge.targetPortId] = [...existingValues, nextValue] as ExecutionInputValue;
           } else {
-            inputs[edge.targetPortId] = [existing, nextValue];
+            inputs[edge.targetPortId] = [existing, nextValue] as ExecutionInputValue;
           }
         }
 

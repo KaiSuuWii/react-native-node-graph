@@ -175,7 +175,8 @@ export const createExampleAppModel = (
     showValidationOverlay: true,
     showDebugOverlay: false,
     themeMode: themeController.getState().mode,
-    themeScale: themeController.getState().scale
+    themeScale: themeController.getState().scale,
+    focusedTargetId: undefined
   };
 
   const getActiveDocument = (): GraphDocumentEnvelope =>

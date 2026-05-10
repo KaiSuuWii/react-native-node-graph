@@ -1,3 +1,20 @@
 {
-  "extends": "./tsconfig.json"
+  "extends": "./tsconfig.json",
+  "references": [
+    {
+      "path": "../shared/tsconfig.build.json"
+    },
+    {
+      "path": "../core/tsconfig.build.json"
+    },
+    {
+      "path": "../renderer-skia/tsconfig.build.json"
+    },
+    {
+      "path": "../plugins/tsconfig.build.json"
+    },
+    {
+      "path": "../examples/tsconfig.build.json"
+    }
+  ]
 }
