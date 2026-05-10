@@ -1,10 +1,16 @@
 import type {
+  EdgeInput,
   GraphDocumentEnvelope,
   GraphInput,
-  GraphSnapshot
+  GraphSnapshot,
+  NodeInput
 } from "@react-native-node-graph/core";
 import { createGraphSnapshot } from "@react-native-node-graph/core";
 import { vec2 } from "@react-native-node-graph/shared";
+
+type PipelineNodeInput = NodeInput & {
+  readonly id: `node_${string}`;
+};
 
 const createDocument = (
   id: `graph_${string}`,
@@ -30,7 +36,7 @@ const createPipelineDocument = (
   name: string,
   chainLength: number
 ): GraphDocumentEnvelope => {
-  const nodes = Array.from({ length: chainLength }, (_, index) => {
+  const nodes: readonly PipelineNodeInput[] = Array.from({ length: chainLength }, (_, index) => {
     const nodeId = `node_${id}_${index}` as const;
     const isSource = index === 0;
     const isSink = index === chainLength - 1;
@@ -46,7 +52,7 @@ const createPipelineDocument = (
       ports: isSource
         ? [
             {
-              id: "port_source_out" as `port_${string}`,
+                id: "port_source_out",
               name: "value",
               direction: "output" as const,
               dataType: "number"
@@ -55,7 +61,7 @@ const createPipelineDocument = (
         : isSink
           ? [
               {
-                id: "port_sink_in" as `port_${string}`,
+                id: "port_sink_in",
                 name: "input",
                 direction: "input" as const,
                 dataType: "number"
@@ -63,13 +69,13 @@ const createPipelineDocument = (
             ]
           : [
               {
-                id: "port_mix_in_a" as `port_${string}`,
+                id: "port_mix_in_a",
                 name: "a",
                 direction: "input" as const,
                 dataType: "number"
               },
               {
-                id: "port_mix_out" as `port_${string}`,
+                id: "port_mix_out",
                 name: "result",
                 direction: "output" as const,
                 dataType: "number"
@@ -78,7 +84,7 @@ const createPipelineDocument = (
     };
   });
 
-  const edges = Array.from({ length: Math.max(0, chainLength - 1) }, (_, index) => {
+  const edges: readonly EdgeInput[] = Array.from({ length: Math.max(0, chainLength - 1) }, (_, index) => {
     const sourceNode = nodes[index]!;
     const targetNode = nodes[index + 1]!;
 
@@ -86,8 +92,8 @@ const createPipelineDocument = (
       id: `edge_${id}_${index}` as const,
       source: sourceNode.id,
       target: targetNode.id,
-      sourcePortId: (sourceNode.type === "number" ? "port_source_out" : "port_mix_out") as `port_${string}`,
-      targetPortId: (targetNode.type === "display" ? "port_sink_in" : "port_mix_in_a") as `port_${string}`,
+      sourcePortId: sourceNode.type === "number" ? "port_source_out" : "port_mix_out",
+      targetPortId: targetNode.type === "display" ? "port_sink_in" : "port_mix_in_a",
       dataType: "number"
     };
   });
