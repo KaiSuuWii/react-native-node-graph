@@ -5,6 +5,7 @@ import type {
   CubicBezierCurve,
   EdgeRenderState,
   RenderEdgeLayout,
+  RenderNodeLevelOfDetail,
   RenderNodeLayout,
   RenderPortLayout,
   RendererTheme,
@@ -39,24 +40,33 @@ const createPortLayout = (
     direction: port.direction,
     position: vec2(x, y),
     radius: theme.node.portRadius,
-    color: theme.node.portColor
+    color: theme.node.portColor,
+    accessibilityLabel: `${node.label} ${port.direction} port ${port.name}`
   };
 };
 
 export const createNodeLayout = (
   node: GraphNodeSnapshot,
-  theme: RendererTheme
+  theme: RendererTheme,
+  lod: RenderNodeLevelOfDetail = {
+    zoom: 1,
+    showLabel: true,
+    showPorts: true,
+    showDecorations: true
+  }
 ): RenderNodeLayout => {
   const { inputPorts, outputPorts } = splitPorts(node.ports);
   const ports: RenderPortLayout[] = [];
 
-  inputPorts.forEach((port, index) => {
-    ports.push(createPortLayout(port, index, inputPorts.length, node, theme));
-  });
+  if (lod.showPorts) {
+    inputPorts.forEach((port, index) => {
+      ports.push(createPortLayout(port, index, inputPorts.length, node, theme));
+    });
 
-  outputPorts.forEach((port, index) => {
-    ports.push(createPortLayout(port, index, outputPorts.length, node, theme));
-  });
+    outputPorts.forEach((port, index) => {
+      ports.push(createPortLayout(port, index, outputPorts.length, node, theme));
+    });
+  }
 
   return {
     id: node.id,
@@ -72,7 +82,14 @@ export const createNodeLayout = (
     borderWidth: theme.node.borderWidth,
     labelColor: theme.node.labelColor,
     subLabelColor: theme.node.subLabelColor,
-    ports
+    ports,
+    lod,
+    pluginVisuals: [],
+    accessibilityLabel: `${node.label} node of type ${node.type}`,
+    accessibilityHint:
+      ports.length > 0
+        ? `Contains ${ports.length} port${ports.length === 1 ? "" : "s"} for graph connections.`
+        : "Static node with no ports."
   };
 };
 
@@ -113,11 +130,21 @@ export const createBezierCurve = (start: Vec2, end: Vec2): CubicBezierCurve => {
   };
 };
 
+export const createSimplifiedBezierCurve = (start: Vec2, end: Vec2): CubicBezierCurve => ({
+  start,
+  control1: vec2(start.x + (end.x - start.x) / 3, start.y + (end.y - start.y) / 3),
+  control2: vec2(start.x + ((end.x - start.x) * 2) / 3, start.y + ((end.y - start.y) * 2) / 3),
+  end
+});
+
 export const createEdgeLayout = (
   edge: GraphEdgeSnapshot,
   snapshot: GraphSnapshot,
   theme: RendererTheme,
-  state?: Partial<EdgeRenderState>
+  state?: Partial<EdgeRenderState>,
+  options?: {
+    readonly simplified?: boolean;
+  }
 ): RenderEdgeLayout | undefined => {
   const sourceNode = snapshot.nodes.find((node) => node.id === edge.source);
   const targetNode = snapshot.nodes.find((node) => node.id === edge.target);
@@ -130,12 +157,17 @@ export const createEdgeLayout = (
   const invalid = state?.invalid ?? false;
   const start = getPortAnchor(sourceNode, edge.sourcePortId, "output", theme);
   const end = getPortAnchor(targetNode, edge.targetPortId, "input", theme);
+  const simplified = options?.simplified ?? false;
+  const curve = simplified ? createSimplifiedBezierCurve(start, end) : createBezierCurve(start, end);
 
   return {
     id: edge.id,
     source: edge.source,
     target: edge.target,
-    curve: createBezierCurve(start, end),
+    curve,
+    routePoints: simplified
+      ? [curve.start, curve.end]
+      : [curve.start, curve.control1, curve.control2, curve.end],
     width: theme.edge.width,
     color: invalid
       ? theme.edge.invalidColor
@@ -143,7 +175,15 @@ export const createEdgeLayout = (
         ? theme.edge.selectedColor
         : theme.edge.color,
     selected,
-    invalid
+    invalid,
+    simplified,
+    pluginVisuals: [],
+    accessibilityLabel: `Edge from ${sourceNode.label} to ${targetNode.label}`,
+    accessibilityHint: invalid
+      ? "Connection is currently invalid."
+      : simplified
+        ? "Connection is simplified at the current zoom level."
+        : "Connection is interactive and can be inspected."
   };
 };
 
@@ -174,7 +214,10 @@ export const createGroupLayout = (
           memberBounds.max.x - memberBounds.min.x + GROUP_PADDING * 2,
           memberBounds.max.y - memberBounds.min.y + GROUP_PADDING * 2 + HEADER_LABEL_GAP
         ),
-        color: theme.groupColor
+        color: theme.groupColor,
+        accessibilityLabel: `${group.name} group containing ${members.length} node${
+          members.length === 1 ? "" : "s"
+        }`
       }
     ];
   });

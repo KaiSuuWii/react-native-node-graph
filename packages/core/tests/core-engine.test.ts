@@ -5,7 +5,8 @@ import {
   createGraphSnapshot,
   createGroupId,
   createMigrationRegistry,
-  type CorePluginHooks,
+  type ExecutionOutputs,
+  type GraphPlugin,
   type GraphDocumentEnvelope,
   type NodeTypeDefinition
 } from "@react-native-node-graph/core";
@@ -49,6 +50,77 @@ const outputOnlyNodeType: NodeTypeDefinition = {
       dataType: "number"
     }
   ]
+};
+
+const sourceExecutionNodeType: NodeTypeDefinition = {
+  type: "source-exec",
+  ports: [
+    {
+      id: "port_out",
+      name: "Out",
+      direction: "output",
+      dataType: "number"
+    }
+  ],
+  execution: {
+    execute: ({ node }) => ({
+      port_out: typeof node.properties.value === "number" ? node.properties.value : 1
+    })
+  }
+};
+
+const sumExecutionNodeType: NodeTypeDefinition = {
+  type: "sum-exec",
+  ports: [
+    {
+      id: "port_left",
+      name: "Left",
+      direction: "input",
+      dataType: "number"
+    },
+    {
+      id: "port_right",
+      name: "Right",
+      direction: "input",
+      dataType: "number"
+    },
+    {
+      id: "port_out",
+      name: "Out",
+      direction: "output",
+      dataType: "number"
+    }
+  ],
+  execution: {
+    requiredInputs: ["port_left", "port_right"],
+    execute: async ({ inputs }) => {
+      await Promise.resolve();
+      const left = typeof inputs.port_left === "number" ? inputs.port_left : 0;
+      const right = typeof inputs.port_right === "number" ? inputs.port_right : 0;
+
+      return {
+        port_out: left + right
+      };
+    }
+  }
+};
+
+const sinkExecutionNodeType: NodeTypeDefinition = {
+  type: "sink-exec",
+  ports: [
+    {
+      id: "port_in",
+      name: "In",
+      direction: "input",
+      dataType: "number"
+    }
+  ],
+  execution: {
+    requiredInputs: ["port_in"],
+    execute: ({ inputs }) => ({
+      port_in: inputs.port_in
+    })
+  }
 };
 
 describe("core graph factory", () => {
@@ -287,9 +359,13 @@ describe("core engine node CRUD", () => {
   });
 
   it("rejects invalid node creation and rolls state back", () => {
-    const pluginHooks: CorePluginHooks = {
+    const pluginHooks = {
       beforeNodeCreate: vi.fn(),
       afterNodeCreate: vi.fn()
+    };
+    const plugin: GraphPlugin = {
+      name: "validation-hooks",
+      hooks: pluginHooks
     };
     const engine = createCoreEngine({
       nodeTypes: [
@@ -301,7 +377,7 @@ describe("core engine node CRUD", () => {
       ],
       schemaValidator: (input) =>
         input.label === "forbidden" ? ["label forbidden"] : [],
-      plugins: [pluginHooks]
+      plugins: [plugin]
     });
 
     expect(() =>
@@ -628,6 +704,263 @@ describe("core engine history", () => {
   });
 });
 
+describe("core engine execution", () => {
+  it("validates missing inputs and execution cycles", () => {
+    const engine = createCoreEngine({
+      nodeTypes: [sourceExecutionNodeType, sumExecutionNodeType, sinkExecutionNodeType]
+    });
+
+    const missingInputValidation = engine.validateExecution(
+      createGraphSnapshot({
+        id: createGraphId("missing-input"),
+        metadata: graphMetadata,
+        nodes: [
+          {
+            id: "node_source_exec",
+            type: "source-exec",
+            position: vec2(0, 0),
+            ports: sourceExecutionNodeType.ports
+          },
+          {
+            id: "node_sum_exec",
+            type: "sum-exec",
+            position: vec2(200, 0),
+            ports: sumExecutionNodeType.ports
+          }
+        ],
+        edges: [
+          {
+            id: "edge_source_sum",
+            source: "node_source_exec",
+            target: "node_sum_exec",
+            sourcePortId: "port_out",
+            targetPortId: "port_left"
+          }
+        ],
+        groups: []
+      })
+    );
+    const cycleValidation = engine.validateExecution(
+      createGraphSnapshot({
+        id: createGraphId("cycle"),
+        metadata: graphMetadata,
+        nodes: [
+          {
+            id: "node_cycle_a",
+            type: "sum-exec",
+            position: vec2(0, 0),
+            ports: sumExecutionNodeType.ports
+          },
+          {
+            id: "node_cycle_b",
+            type: "sum-exec",
+            position: vec2(200, 0),
+            ports: sumExecutionNodeType.ports
+          }
+        ],
+        edges: [
+          {
+            id: "edge_cycle_ab",
+            source: "node_cycle_a",
+            target: "node_cycle_b",
+            sourcePortId: "port_out",
+            targetPortId: "port_left"
+          },
+          {
+            id: "edge_cycle_ba",
+            source: "node_cycle_b",
+            target: "node_cycle_a",
+            sourcePortId: "port_out",
+            targetPortId: "port_right"
+          }
+        ],
+        groups: []
+      })
+    );
+
+    expect(missingInputValidation.errors.map((error) => error.code)).toContain(
+      "EXECUTION_INPUT_MISSING"
+    );
+    expect(cycleValidation.errors.map((error) => error.code)).toContain(
+      "EXECUTION_CYCLE_DETECTED"
+    );
+  });
+
+  it("executes DAGs deterministically and reuses cache entries", async () => {
+    const engine = createCoreEngine({
+      idSeed: "execution",
+      nodeTypes: [sourceExecutionNodeType, sumExecutionNodeType, sinkExecutionNodeType]
+    });
+    const left = engine.createNode({
+      type: "source-exec",
+      position: vec2(0, 0),
+      properties: { value: 3 },
+      ports: sourceExecutionNodeType.ports
+    });
+    const right = engine.createNode({
+      type: "source-exec",
+      position: vec2(0, 100),
+      properties: { value: 7 },
+      ports: sourceExecutionNodeType.ports
+    });
+    const sum = engine.createNode({
+      type: "sum-exec",
+      position: vec2(250, 50),
+      ports: sumExecutionNodeType.ports
+    });
+    const sink = engine.createNode({
+      type: "sink-exec",
+      position: vec2(500, 50),
+      ports: sinkExecutionNodeType.ports
+    });
+
+    engine.createEdge({
+      source: left.id,
+      target: sum.id,
+      sourcePortId: "port_out",
+      targetPortId: "port_left"
+    });
+    engine.createEdge({
+      source: right.id,
+      target: sum.id,
+      sourcePortId: "port_out",
+      targetPortId: "port_right"
+    });
+    engine.createEdge({
+      source: sum.id,
+      target: sink.id,
+      sourcePortId: "port_out",
+      targetPortId: "port_in"
+    });
+
+    const firstRun = await engine.execute().result;
+    const secondRun = await engine.execute().result;
+
+    expect(firstRun.status).toBe("completed");
+    expect(firstRun.nodeOrder).toEqual([left.id, right.id, sum.id, sink.id]);
+    expect(firstRun.nodeResults[sum.id]?.outputs).toEqual({ port_out: 10 });
+    expect(firstRun.nodeResults[sink.id]?.outputs).toEqual({ port_in: 10 });
+    expect(secondRun.status).toBe("completed");
+    expect(secondRun.nodeOrder).toEqual(firstRun.nodeOrder);
+    expect(secondRun.nodeResults[sink.id]?.outputs).toEqual(firstRun.nodeResults[sink.id]?.outputs);
+    expect(secondRun.cacheStats.hits).toBe(4);
+  });
+
+  it("invalidates downstream execution cache after mutations", async () => {
+    const engine = createCoreEngine({
+      idSeed: "cache",
+      nodeTypes: [sourceExecutionNodeType, sumExecutionNodeType, sinkExecutionNodeType]
+    });
+    const left = engine.createNode({
+      type: "source-exec",
+      position: vec2(0, 0),
+      properties: { value: 2 },
+      ports: sourceExecutionNodeType.ports
+    });
+    const right = engine.createNode({
+      type: "source-exec",
+      position: vec2(0, 80),
+      properties: { value: 5 },
+      ports: sourceExecutionNodeType.ports
+    });
+    const sum = engine.createNode({
+      type: "sum-exec",
+      position: vec2(200, 40),
+      ports: sumExecutionNodeType.ports
+    });
+    const sink = engine.createNode({
+      type: "sink-exec",
+      position: vec2(420, 40),
+      ports: sinkExecutionNodeType.ports
+    });
+
+    engine.createEdge({
+      source: left.id,
+      target: sum.id,
+      sourcePortId: "port_out",
+      targetPortId: "port_left"
+    });
+    engine.createEdge({
+      source: right.id,
+      target: sum.id,
+      sourcePortId: "port_out",
+      targetPortId: "port_right"
+    });
+    engine.createEdge({
+      source: sum.id,
+      target: sink.id,
+      sourcePortId: "port_out",
+      targetPortId: "port_in"
+    });
+
+    await engine.execute().result;
+    engine.updateNode(left.id, {
+      properties: { value: 10 }
+    });
+    const rerun = await engine.execute().result;
+
+    expect(engine.getExecutionCacheSnapshot().map((entry) => entry.nodeId)).toEqual(
+      [left.id, right.id, sink.id, sum.id].sort()
+    );
+    expect(rerun.cacheStats.hits).toBe(1);
+    expect(rerun.cacheStats.misses).toBe(3);
+    expect(rerun.nodeResults[sink.id]?.outputs).toEqual({ port_in: 15 });
+  });
+
+  it("supports cancellation through the execution handle", async () => {
+    const engine = createCoreEngine({
+      nodeTypes: [
+        {
+          type: "slow-source",
+          ports: [
+            {
+              id: "port_out",
+              name: "Out",
+              direction: "output",
+              dataType: "number"
+            }
+          ],
+          execution: {
+            execute: ({ signal }) =>
+              new Promise<ExecutionOutputs>((resolve, reject) => {
+                const timer = setTimeout(() => {
+                  resolve({ port_out: 1 });
+                }, 25);
+
+                signal.addEventListener("abort", () => {
+                  clearTimeout(timer);
+                  const error = new Error("Execution aborted");
+                  error.name = "AbortError";
+                  reject(error);
+                });
+              })
+          }
+        }
+      ]
+    });
+
+    engine.createNode({
+      type: "slow-source",
+      position: vec2(0, 0),
+      ports: [
+        {
+          id: "port_out",
+          name: "Out",
+          direction: "output",
+          dataType: "number"
+        }
+      ]
+    });
+
+    const handle = engine.execute();
+
+    expect(handle.cancel()).toBe(true);
+    await expect(handle.result).resolves.toMatchObject({
+      status: "cancelled"
+    });
+  });
+});
+
 describe("core engine serialization", () => {
   it("round-trips graphs through versioned JSON envelopes and supports partial export", () => {
     const groupId = createGroupId("serialize");
@@ -700,6 +1033,43 @@ describe("core engine serialization", () => {
 });
 
 describe("core engine events and disposal", () => {
+  it("rejects duplicate plugins and isolates failing plugin hooks", () => {
+    const dispose = vi.fn();
+    const plugin: GraphPlugin = {
+      name: "runtime-plugin",
+      initialize: ({ engine }) => {
+        engine.registerNodeType(passthroughNodeType);
+      },
+      dispose,
+      hooks: {
+        afterNodeCreate: () => {
+          throw new Error("hook failure");
+        }
+      }
+    };
+    const engine = createCoreEngine();
+
+    engine.registerPlugin(plugin);
+
+    expect(() => engine.registerPlugin(plugin)).toThrowError(/already been registered/i);
+
+    const node = engine.createNode({
+      type: "passthrough",
+      position: vec2(0, 0)
+    });
+
+    expect(node.type).toBe("passthrough");
+    expect(engine.getPlugins()).toEqual([
+      expect.objectContaining({
+        name: "runtime-plugin",
+        initialized: true,
+        lastError: "hook failure"
+      })
+    ]);
+    expect(engine.unregisterPlugin("runtime-plugin")).toBe(true);
+    expect(dispose).toHaveBeenCalledTimes(1);
+  });
+
   it("emits stable graph events during load and CRUD operations", () => {
     const engine = createCoreEngine({
       idSeed: "events",
@@ -752,6 +1122,34 @@ describe("core engine events and disposal", () => {
       "edgeCreated:edge_edge_0001:1",
       "edgeDeleted:edge_edge_0001:0",
       "nodeRemoved:node_passthrough_0001:0"
+    ]);
+  });
+
+  it("emits execution lifecycle events", async () => {
+    const engine = createCoreEngine({
+      idSeed: "execution-events",
+      nodeTypes: [sourceExecutionNodeType]
+    });
+    const node = engine.createNode({
+      type: "source-exec",
+      position: vec2(0, 0),
+      ports: sourceExecutionNodeType.ports
+    });
+    const events: string[] = [];
+
+    engine.on("executionStarted", ({ executionId, nodeIds }) => {
+      events.push(`start:${executionId}:${nodeIds.join(",")}`);
+    });
+    engine.on("executionCompleted", ({ result }) => {
+      events.push(`complete:${result.executionId}:${result.status}`);
+    });
+
+    const run = await engine.execute().result;
+
+    expect(run.nodeResults[node.id]?.outputs).toEqual({ port_out: 1 });
+    expect(events).toEqual([
+      `start:${run.executionId}:${node.id}`,
+      `complete:${run.executionId}:completed`
     ]);
   });
 
@@ -824,5 +1222,73 @@ describe("core engine determinism", () => {
     };
 
     expect(runSequence()).toEqual(runSequence());
+  });
+
+  it("produces identical execution results for the same graph", async () => {
+    const createEngine = () =>
+      createCoreEngine({
+        idSeed: "replay-execution",
+        nodeTypes: [sourceExecutionNodeType, sumExecutionNodeType, sinkExecutionNodeType]
+      });
+
+    const runSequence = async () => {
+      const engine = createEngine();
+      const left = engine.createNode({
+        type: "source-exec",
+        position: vec2(0, 0),
+        properties: { value: 4 },
+        ports: sourceExecutionNodeType.ports
+      });
+      const right = engine.createNode({
+        type: "source-exec",
+        position: vec2(0, 120),
+        properties: { value: 6 },
+        ports: sourceExecutionNodeType.ports
+      });
+      const sum = engine.createNode({
+        type: "sum-exec",
+        position: vec2(200, 60),
+        ports: sumExecutionNodeType.ports
+      });
+      const sink = engine.createNode({
+        type: "sink-exec",
+        position: vec2(420, 60),
+        ports: sinkExecutionNodeType.ports
+      });
+
+      engine.createEdge({
+        source: left.id,
+        target: sum.id,
+        sourcePortId: "port_out",
+        targetPortId: "port_left"
+      });
+      engine.createEdge({
+        source: right.id,
+        target: sum.id,
+        sourcePortId: "port_out",
+        targetPortId: "port_right"
+      });
+      engine.createEdge({
+        source: sum.id,
+        target: sink.id,
+        sourcePortId: "port_out",
+        targetPortId: "port_in"
+      });
+
+      return engine.execute().result;
+    };
+
+    const leftRun = await runSequence();
+    const rightRun = await runSequence();
+
+    expect({
+      ...leftRun,
+      startedAtIso: "normalized",
+      completedAtIso: "normalized"
+    }).toEqual({
+      ...rightRun,
+      startedAtIso: "normalized",
+      completedAtIso: "normalized"
+    });
   });
 });

@@ -1,5 +1,6 @@
 import { DEFAULT_NODE_SIZE, type EdgeId, type NodeId } from "@react-native-node-graph/shared";
 
+import { buildExecutionPlan, validateExecutionPlan } from "./execution.js";
 import { createEdgeFactory, createGroupFactory, createNodeFactory, makePortId } from "./ids.js";
 import {
   DEFAULT_ID_SEED,
@@ -14,7 +15,7 @@ import {
   compareById,
   resolveActiveSelectionMode
 } from "./model.js";
-import { makeEmptyState, setSelectionFromSnapshot, type HistoryTransaction, type InternalState } from "./state.js";
+import { makeEmptyState, setSelectionFromSnapshot, type InternalState } from "./state.js";
 import {
   assertEdgeEndpoints,
   assertGroupConsistency,
@@ -26,7 +27,6 @@ import {
   validateGraphData
 } from "./validation.js";
 import type {
-  ActiveSelectionMode,
   CoreEngine,
   CoreEventListener,
   CoreEventMap,
@@ -34,7 +34,16 @@ import type {
   CoreValidationPolicies,
   CreateCoreEngineOptions,
   Edge,
-  EdgeInput,
+  ExecutionCacheEntry,
+  ExecutionContext,
+  ExecutionPolicy,
+  ExecutionResult,
+  ExecutionRunHandle,
+  ExecutionRuntimeError,
+  ExecutionStatus,
+  GraphPlugin,
+  GraphPluginContext,
+  GraphPluginState,
   GraphDocument,
   GraphDocumentEnvelope,
   GraphInput,
@@ -47,7 +56,6 @@ import type {
   Node,
   NodeInput,
   NodeTypeDefinition,
-  PartialGraphExportOptions,
   SelectionChangeMode,
   SelectionSnapshot,
   UpdateNodeInput,
@@ -103,6 +111,64 @@ const createCompositeCommand = (label: string, commands: readonly HistoryCommand
 const isGraphDocumentEnvelope = (document: GraphDocument): document is GraphDocumentEnvelope =>
   "version" in document && "graph" in document;
 
+const EXECUTION_POLICY: ExecutionPolicy = {
+  graph: "dag",
+  ordering: "pull",
+  asyncNodes: "await",
+  batching: "topological-levels",
+  caching: "node-output"
+};
+
+const stableSerialize = (value: unknown): string => {
+  if (value === null || typeof value !== "object") {
+    return JSON.stringify(value);
+  }
+
+  if (Array.isArray(value)) {
+    return `[${value.map((entry) => stableSerialize(entry)).join(",")}]`;
+  }
+
+  const entries = Object.entries(value as Record<string, unknown>).sort((left, right) =>
+    left[0].localeCompare(right[0])
+  );
+
+  return `{${entries
+    .map(([key, entryValue]) => `${JSON.stringify(key)}:${stableSerialize(entryValue)}`)
+    .join(",")}}`;
+};
+
+const createExecutionId = (sequence: number): string =>
+  `execution_${sequence.toString(36).padStart(4, "0")}`;
+
+const createExecutionTimestamp = (): string => new Date().toISOString();
+
+const createExecutionError = (
+  code: string,
+  message: string,
+  nodeId?: NodeId,
+  edgeId?: EdgeId
+): ExecutionRuntimeError => ({
+  code,
+  message,
+  ...(nodeId !== undefined ? { nodeId } : {}),
+  ...(edgeId !== undefined ? { edgeId } : {})
+});
+
+const toGraphPluginState = (
+  plugin: GraphPlugin,
+  initialized: boolean,
+  lastError?: string
+): GraphPluginState => ({
+  name: plugin.name,
+  initialized,
+  hookCount: Object.values(plugin.hooks ?? {}).filter((hook) => hook !== undefined).length,
+  hasDispose: plugin.dispose !== undefined,
+  ...(lastError !== undefined ? { lastError } : {})
+});
+
+const isAbortError = (error: unknown): boolean =>
+  error instanceof Error && error.name === "AbortError";
+
 export const createMigrationRegistry = (
   migrations: readonly GraphMigration[] = [],
   latestVersion = GRAPH_DOCUMENT_VERSION
@@ -140,6 +206,12 @@ export const createMigrationRegistry = (
 };
 
 export const createCoreEngine = (options: CreateCoreEngineOptions = {}): CoreEngine => {
+  interface PluginRuntimeRecord {
+    plugin: GraphPlugin;
+    cleanup?: () => void;
+    state: GraphPluginState;
+  }
+
   const idSeed = options.idSeed ?? DEFAULT_ID_SEED;
   const nextNodeId = createNodeFactory(idSeed);
   const nextEdgeId = createEdgeFactory(idSeed);
@@ -157,11 +229,17 @@ export const createCoreEngine = (options: CreateCoreEngineOptions = {}): CoreEng
     edgeCreated: new Set(),
     edgeDeleted: new Set(),
     graphLoaded: new Set(),
-    selectionChanged: new Set()
+    selectionChanged: new Set(),
+    executionStarted: new Set(),
+    executionCompleted: new Set()
   };
   let api!: CoreEngine;
   let disposed = false;
   let state = makeEmptyState(options.graph);
+  let executionSequence = 0;
+  const executionCache = new Map<NodeId, ExecutionCacheEntry>();
+  const activeExecutions = new Map<string, AbortController>();
+  const pluginRuntimes = new Map<string, PluginRuntimeRecord>();
 
   const emit = <K extends CoreEventName>(eventName: K, payload: CoreEventMap[K]): void => {
     for (const listener of listeners[eventName]) {
@@ -171,12 +249,80 @@ export const createCoreEngine = (options: CreateCoreEngineOptions = {}): CoreEng
 
   const snapshot = (): GraphSnapshot => cloneSnapshot(state);
 
+  const toExecutionSnapshot = (graph?: GraphInput | GraphSnapshot): GraphSnapshot =>
+    graph === undefined
+      ? snapshot()
+      : {
+          id: graph.id ?? state.id,
+          metadata: cloneMetadata(graph.metadata ?? state.metadata),
+          nodes: (graph.nodes ?? []).map((node) => cloneNode(node)).sort(compareById),
+          edges: (graph.edges ?? []).map((edge) => cloneEdge(edge)).sort(compareById),
+          groups: (graph.groups ?? []).map((group) => cloneGroup(group)).sort(compareById),
+          selection: cloneSelection(graph.selection)
+        };
+
   const snapshotSelection = (): SelectionSnapshot => cloneSelectionFromState(state);
 
   const resetHistory = (): void => {
     state.history.undoStack = [];
     state.history.redoStack = [];
     state.history.transactionStack = [];
+  };
+
+  const createPluginContext = (): GraphPluginContext => ({
+    engine: api,
+    executionPolicy: EXECUTION_POLICY
+  });
+
+  const updatePluginState = (pluginName: string, lastError?: string): void => {
+    const runtime = pluginRuntimes.get(pluginName);
+
+    if (runtime === undefined) {
+      return;
+    }
+
+    runtime.state = toGraphPluginState(runtime.plugin, runtime.state.initialized, lastError);
+  };
+
+  const collectDownstreamNodeIds = (nodeIds: readonly NodeId[]): readonly NodeId[] => {
+    const queue = [...nodeIds];
+    const visited = new Set<NodeId>();
+
+    while (queue.length > 0) {
+      const current = queue.shift();
+
+      if (current === undefined || visited.has(current)) {
+        continue;
+      }
+
+      visited.add(current);
+
+      for (const edgeId of state.outgoingEdges.get(current) ?? []) {
+        const targetNodeId = state.edgeMap.get(edgeId)?.target;
+
+        if (targetNodeId !== undefined && !visited.has(targetNodeId)) {
+          queue.push(targetNodeId);
+        }
+      }
+    }
+
+    return [...visited].sort();
+  };
+
+  const invalidateExecutionCache = (nodeIds?: readonly NodeId[]): readonly NodeId[] => {
+    if (nodeIds === undefined || nodeIds.length === 0) {
+      const invalidated = [...executionCache.keys()].sort();
+      executionCache.clear();
+      return invalidated;
+    }
+
+    const invalidated = collectDownstreamNodeIds(nodeIds);
+
+    invalidated.forEach((nodeId) => {
+      executionCache.delete(nodeId);
+    });
+
+    return invalidated;
   };
 
   const requireNode = (nodeId: NodeId): Node => {
@@ -220,6 +366,39 @@ export const createCoreEngine = (options: CreateCoreEngineOptions = {}): CoreEng
     }
 
     return definition;
+  };
+
+  const runBeforeNodeCreateHooks = (input: NodeInput): void => {
+    for (const runtime of pluginRuntimes.values()) {
+      try {
+        runtime.plugin.hooks?.beforeNodeCreate?.(input, api);
+      } catch (error) {
+        updatePluginState(
+          runtime.plugin.name,
+          error instanceof Error ? error.message : String(error)
+        );
+        throw new CoreGraphError(
+          "PLUGIN_HOOK_FAILED",
+          `Plugin "${runtime.plugin.name}" blocked node creation: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
+      }
+    }
+  };
+
+  const runAfterNodeCreateHooks = (node: Node): void => {
+    for (const runtime of pluginRuntimes.values()) {
+      try {
+        runtime.plugin.hooks?.afterNodeCreate?.(node, api);
+        updatePluginState(runtime.plugin.name);
+      } catch (error) {
+        updatePluginState(
+          runtime.plugin.name,
+          error instanceof Error ? error.message : String(error)
+        );
+      }
+    }
   };
 
   const emitSelectionIfChanged = (previous: SelectionSnapshot): SelectionSnapshot => {
@@ -317,6 +496,7 @@ export const createCoreEngine = (options: CreateCoreEngineOptions = {}): CoreEng
       updateGroupMembership(state, undefined, node.groupId, node.id);
       rebuildIndices(state);
       assertGroupConsistency(state);
+      invalidateExecutionCache([node.id]);
     } catch (error) {
       state.nodeMap.delete(node.id);
       rebuildIndices(state);
@@ -349,6 +529,7 @@ export const createCoreEngine = (options: CreateCoreEngineOptions = {}): CoreEng
       }
 
       rebuildIndices(state);
+      invalidateExecutionCache([nodeId]);
 
       for (const edge of state.edgeMap.values()) {
         assertEdgeEndpoints(state, edge, policies, options);
@@ -392,6 +573,10 @@ export const createCoreEngine = (options: CreateCoreEngineOptions = {}): CoreEng
       .filter((edge): edge is Edge => edge !== undefined)
       .sort(compareById)
       .map((edge) => cloneEdge(edge));
+    const affectedNodeIds = [
+      nodeId,
+      ...removedEdges.map((edge) => edge.target).filter((targetNodeId) => targetNodeId !== nodeId)
+    ];
 
     for (const edgeId of connectedEdgeIds) {
       state.edgeMap.delete(edgeId);
@@ -400,6 +585,7 @@ export const createCoreEngine = (options: CreateCoreEngineOptions = {}): CoreEng
     state.nodeMap.delete(nodeId);
     updateGroupMembership(state, node.groupId, undefined, nodeId);
     rebuildIndices(state);
+    invalidateExecutionCache(affectedNodeIds);
     removeDeletedIdsFromSelection();
     assertGroupConsistency(state);
 
@@ -425,6 +611,7 @@ export const createCoreEngine = (options: CreateCoreEngineOptions = {}): CoreEng
 
     state.edgeMap.set(edge.id, cloneEdge(edge));
     rebuildIndices(state);
+    invalidateExecutionCache([edge.target]);
 
     try {
       assertEdgeEndpoints(state, edge, policies, options);
@@ -450,6 +637,7 @@ export const createCoreEngine = (options: CreateCoreEngineOptions = {}): CoreEng
 
     state.edgeMap.delete(edgeId);
     rebuildIndices(state);
+    invalidateExecutionCache([edge.target]);
     removeDeletedIdsFromSelection();
 
     if (shouldEmit) {
@@ -572,6 +760,68 @@ export const createCoreEngine = (options: CreateCoreEngineOptions = {}): CoreEng
     }
   });
 
+  const registerPlugin = (plugin: GraphPlugin): (() => void) => {
+    ensureEngineActive(disposed);
+
+    if (pluginRuntimes.has(plugin.name)) {
+      throw new CoreGraphError(
+        "PLUGIN_DUPLICATE",
+        `Plugin "${plugin.name}" has already been registered`
+      );
+    }
+
+    const runtime: PluginRuntimeRecord = {
+      plugin,
+      state: toGraphPluginState(plugin, false)
+    };
+
+    pluginRuntimes.set(plugin.name, runtime);
+
+    try {
+      const cleanup = plugin.initialize?.(createPluginContext());
+
+      if (typeof cleanup === "function") {
+        runtime.cleanup = cleanup;
+      }
+      runtime.state = toGraphPluginState(plugin, true);
+      return () => {
+        api.unregisterPlugin(plugin.name);
+      };
+    } catch (error) {
+      pluginRuntimes.delete(plugin.name);
+      throw new CoreGraphError(
+        "PLUGIN_INITIALIZE_FAILED",
+        `Plugin "${plugin.name}" failed to initialize: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    }
+  };
+
+  const unregisterPlugin = (name: string): boolean => {
+    ensureEngineActive(disposed);
+    const runtime = pluginRuntimes.get(name);
+
+    if (runtime === undefined) {
+      return false;
+    }
+
+    pluginRuntimes.delete(name);
+
+    try {
+      runtime.cleanup?.();
+      runtime.plugin.dispose?.(createPluginContext());
+    } catch (error) {
+      runtime.state = toGraphPluginState(
+        runtime.plugin,
+        false,
+        error instanceof Error ? error.message : String(error)
+      );
+    }
+
+    return true;
+  };
+
   const load = (graph: GraphInput, shouldEmit = true): GraphSnapshot => {
     ensureEngineActive(disposed);
 
@@ -633,12 +883,340 @@ export const createCoreEngine = (options: CreateCoreEngineOptions = {}): CoreEng
     pruneSelectionAgainstState(nextState);
     state = nextState;
     resetHistory();
+    executionCache.clear();
 
     if (shouldEmit) {
       emit("graphLoaded", { graph: snapshot() });
     }
 
     return snapshot();
+  };
+
+  const getExecutionCacheSnapshot = (): readonly ExecutionCacheEntry[] =>
+    [...executionCache.values()].sort((left, right) => left.nodeId.localeCompare(right.nodeId));
+
+  const throwIfAborted = (signal: AbortSignal): void => {
+    if (signal.aborted) {
+      const abortError = new Error("Execution aborted");
+      abortError.name = "AbortError";
+      throw abortError;
+    }
+  };
+
+  const executeGraph = (executionOptions: Parameters<CoreEngine["execute"]>[0] = {}): ExecutionRunHandle => {
+    ensureEngineActive(disposed);
+    const executionSnapshot = snapshot();
+    const executionValidation = validateExecutionPlan(
+      executionSnapshot,
+      nodeTypes,
+      executionOptions.targetNodeIds
+    );
+    const startedAtIso = createExecutionTimestamp();
+    const executionId = createExecutionId((executionSequence += 1));
+    const controller = new AbortController();
+    const invalidatedNodeIds =
+      executionOptions.invalidateNodeIds === undefined
+        ? []
+        : invalidateExecutionCache(executionOptions.invalidateNodeIds);
+
+    if (executionOptions.signal !== undefined) {
+      executionOptions.signal.addEventListener("abort", () => {
+        controller.abort();
+      });
+    }
+
+    if (!executionValidation.isValid) {
+      const result: ExecutionResult = {
+        executionId,
+        status: "failed",
+        policy: EXECUTION_POLICY,
+        nodeOrder: [],
+        batches: [],
+        nodeResults: {},
+        errors: executionValidation.errors.map((error) =>
+          createExecutionError(error.code, error.message, error.entityId as NodeId | undefined)
+        ),
+        cacheStats: {
+          hits: 0,
+          misses: 0,
+          invalidatedNodeIds
+        },
+        startedAtIso,
+        completedAtIso: createExecutionTimestamp()
+      };
+
+      emit("executionCompleted", {
+        result,
+        graph: executionSnapshot
+      });
+
+      return {
+        executionId,
+        cancel: () => false,
+        result: Promise.resolve(result)
+      };
+    }
+
+    const { plan } = buildExecutionPlan(executionSnapshot, executionOptions.targetNodeIds);
+
+    if (plan === undefined) {
+      const result: ExecutionResult = {
+        executionId,
+        status: "failed",
+        policy: EXECUTION_POLICY,
+        nodeOrder: [],
+        batches: [],
+        nodeResults: {},
+        errors: [createExecutionError("EXECUTION_PLAN_MISSING", "Execution plan could not be created")],
+        cacheStats: {
+          hits: 0,
+          misses: 0,
+          invalidatedNodeIds
+        },
+        startedAtIso,
+        completedAtIso: createExecutionTimestamp()
+      };
+
+      emit("executionCompleted", {
+        result,
+        graph: executionSnapshot
+      });
+
+      return {
+        executionId,
+        cancel: () => false,
+        result: Promise.resolve(result)
+      };
+    }
+
+    activeExecutions.set(executionId, controller);
+    emit("executionStarted", {
+      executionId,
+      nodeIds: plan.nodeOrder,
+      batches: plan.batches,
+      policy: EXECUTION_POLICY,
+      graph: executionSnapshot
+    });
+
+    const result = (async (): Promise<ExecutionResult> => {
+      const nodeById = new Map(executionSnapshot.nodes.map((node) => [node.id, node]));
+      const edgeById = new Map(executionSnapshot.edges.map((edge) => [edge.id, edge]));
+      const nodeResults: Record<string, ExecutionResult["nodeResults"][string]> = {};
+      const runtimeErrors: ExecutionRuntimeError[] = [];
+      let hits = 0;
+      let misses = 0;
+
+      const executeNode = async (
+        nodeId: NodeId,
+        batchIndex: number,
+        orderIndex: number
+      ): Promise<void> => {
+        throwIfAborted(controller.signal);
+        const node = nodeById.get(nodeId);
+
+        if (node === undefined) {
+          runtimeErrors.push(
+            createExecutionError("EXECUTION_NODE_MISSING", `Execution node "${nodeId}" is missing`, nodeId)
+          );
+          return;
+        }
+
+        const definition = nodeTypes.get(node.type)?.execution;
+
+        if (definition === undefined) {
+          runtimeErrors.push(
+            createExecutionError(
+              "EXECUTION_HANDLER_MISSING",
+              `Node "${node.id}" does not define an execution handler`,
+              node.id
+            )
+          );
+          return;
+        }
+
+        const inputs: Record<string, ExecutionContext["inputs"][string]> = {};
+        const upstreamNodeIds: NodeId[] = [];
+
+        for (const edgeId of plan.incomingByNodeId[nodeId] ?? []) {
+          const edge = edgeById.get(edgeId);
+
+          if (edge === undefined || edge.targetPortId === undefined || edge.sourcePortId === undefined) {
+            runtimeErrors.push(
+              createExecutionError(
+                "EXECUTION_INPUT_EDGE_INVALID",
+                `Execution edge "${edgeId}" is missing a required port binding`,
+                node.id,
+                edgeId
+              )
+            );
+            return;
+          }
+
+          const upstream = nodeResults[edge.source];
+
+          if (upstream === undefined) {
+            runtimeErrors.push(
+              createExecutionError(
+                "EXECUTION_DEPENDENCY_MISSING",
+                `Execution dependency "${edge.source}" was not resolved before "${node.id}"`,
+                node.id,
+                edge.id
+              )
+            );
+            return;
+          }
+
+          if (!(edge.sourcePortId in upstream.outputs)) {
+            runtimeErrors.push(
+              createExecutionError(
+                "EXECUTION_OUTPUT_MISSING",
+                `Node "${edge.source}" did not produce output "${edge.sourcePortId}" required by "${node.id}"`,
+                node.id,
+                edge.id
+              )
+            );
+            return;
+          }
+
+          const existing = inputs[edge.targetPortId];
+          const nextValue = upstream.outputs[edge.sourcePortId];
+          upstreamNodeIds.push(edge.source);
+
+          if (existing === undefined) {
+            inputs[edge.targetPortId] = nextValue;
+          } else if (Array.isArray(existing)) {
+            const existingValues: readonly unknown[] = existing;
+            inputs[edge.targetPortId] = [...existingValues, nextValue];
+          } else {
+            inputs[edge.targetPortId] = [existing, nextValue];
+          }
+        }
+
+        const signature = stableSerialize({
+          type: node.type,
+          properties: node.properties,
+          inputs
+        });
+        const cached = executionCache.get(nodeId);
+
+        if (cached !== undefined && cached.signature === signature) {
+          hits += 1;
+          nodeResults[nodeId] = {
+            nodeId,
+            batchIndex,
+            orderIndex,
+            status: "cached",
+            inputs,
+            outputs: cached.outputs
+          };
+          return;
+        }
+
+        misses += 1;
+
+        const context: ExecutionContext = {
+          executionId,
+          node,
+          graph: executionSnapshot,
+          batchIndex,
+          orderIndex,
+          inputs,
+          properties: node.properties,
+          signal: controller.signal,
+          engine: api,
+          policy: EXECUTION_POLICY,
+          getCachedOutput: (requestedNodeId) => executionCache.get(requestedNodeId)
+        };
+
+        const outputs = await definition.execute(context);
+        throwIfAborted(controller.signal);
+        const normalizedOutputs = { ...(outputs ?? {}) };
+
+        executionCache.set(nodeId, {
+          nodeId,
+          signature,
+          outputs: normalizedOutputs,
+          upstreamNodeIds: [...new Set(upstreamNodeIds)].sort(),
+          updatedAtExecutionId: executionId
+        });
+        nodeResults[nodeId] = {
+          nodeId,
+          batchIndex,
+          orderIndex,
+          status: "executed",
+          inputs,
+          outputs: normalizedOutputs
+        };
+      };
+
+      let status: ExecutionStatus = "completed";
+
+      try {
+        for (const batch of plan.batches) {
+          throwIfAborted(controller.signal);
+          await Promise.all(
+            batch.nodeIds.map((nodeId, orderIndex) => executeNode(nodeId, batch.index, orderIndex))
+          );
+
+          if (runtimeErrors.length > 0) {
+            status = "failed";
+            break;
+          }
+        }
+      } catch (error) {
+        status = isAbortError(error) ? "cancelled" : "failed";
+
+        if (!isAbortError(error)) {
+          runtimeErrors.push(
+            createExecutionError(
+              "EXECUTION_RUNTIME_ERROR",
+              error instanceof Error ? error.message : String(error)
+            )
+          );
+        }
+      } finally {
+        activeExecutions.delete(executionId);
+      }
+
+      const finalResult: ExecutionResult = {
+        executionId,
+        status,
+        policy: EXECUTION_POLICY,
+        nodeOrder: plan.nodeOrder,
+        batches: plan.batches,
+        nodeResults,
+        errors: runtimeErrors,
+        cacheStats: {
+          hits,
+          misses,
+          invalidatedNodeIds
+        },
+        startedAtIso,
+        completedAtIso: createExecutionTimestamp()
+      };
+
+      emit("executionCompleted", {
+        result: finalResult,
+        graph: executionSnapshot
+      });
+
+      return finalResult;
+    })();
+
+    return {
+      executionId,
+      cancel: () => {
+        const activeExecution = activeExecutions.get(executionId);
+
+        if (activeExecution === undefined || activeExecution.signal.aborted) {
+          return false;
+        }
+
+        activeExecution.abort();
+        return true;
+      },
+      result
+    };
   };
 
   for (const definition of options.nodeTypes ?? []) {
@@ -653,6 +1231,11 @@ export const createCoreEngine = (options: CreateCoreEngineOptions = {}): CoreEng
     getSnapshot: () => {
       ensureEngineActive(disposed);
       return snapshot();
+    },
+    getExecutionPolicy: () => EXECUTION_POLICY,
+    getExecutionCacheSnapshot: () => {
+      ensureEngineActive(disposed);
+      return getExecutionCacheSnapshot();
     },
     getStateSnapshot: () => {
       ensureEngineActive(disposed);
@@ -687,6 +1270,14 @@ export const createCoreEngine = (options: CreateCoreEngineOptions = {}): CoreEng
           redoDepth: state.history.redoStack.length,
           transactionDepth: state.history.transactionStack.length
         },
+        execution: {
+          policy: EXECUTION_POLICY,
+          cacheNodeIds: [...executionCache.keys()].sort(),
+          activeExecutionIds: [...activeExecutions.keys()].sort()
+        },
+        plugins: [...pluginRuntimes.values()]
+          .map((runtime) => runtime.state)
+          .sort((left, right) => left.name.localeCompare(right.name)),
         nodeIds: [...state.nodeMap.keys()].sort(),
         edgeIds: [...state.edgeMap.keys()].sort(),
         groupIds: [...state.groupMap.keys()].sort(),
@@ -706,6 +1297,14 @@ export const createCoreEngine = (options: CreateCoreEngineOptions = {}): CoreEng
       ensureEngineActive(disposed);
       return nodeTypes.get(type);
     },
+    registerPlugin: (plugin) => registerPlugin(plugin),
+    unregisterPlugin: (name) => unregisterPlugin(name),
+    getPlugins: () => {
+      ensureEngineActive(disposed);
+      return [...pluginRuntimes.values()]
+        .map((runtime) => runtime.state)
+        .sort((left, right) => left.name.localeCompare(right.name));
+    },
     on: (eventName, listener) => {
       ensureEngineActive(disposed);
       listeners[eventName].add(listener);
@@ -717,6 +1316,10 @@ export const createCoreEngine = (options: CreateCoreEngineOptions = {}): CoreEng
     validateGraph: (graph) => {
       ensureEngineActive(disposed);
       return validateGraphData(graph ?? snapshot(), { ...options, nodeTypes: [...nodeTypes.values()] }, policies);
+    },
+    validateExecution: (graph) => {
+      ensureEngineActive(disposed);
+      return validateExecutionPlan(toExecutionSnapshot(graph), nodeTypes);
     },
     loadGraph: (graph) => load(graph),
     importGraph: (document, migrationRegistry = createMigrationRegistry()) => {
@@ -831,9 +1434,7 @@ export const createCoreEngine = (options: CreateCoreEngineOptions = {}): CoreEng
         id: nodeId
       };
 
-      for (const plugin of options.plugins ?? []) {
-        plugin.beforeNodeCreate?.(draftInput, api);
-      }
+      runBeforeNodeCreateHooks(draftInput);
 
       validateNodeInput(draftInput, definition);
 
@@ -852,9 +1453,7 @@ export const createCoreEngine = (options: CreateCoreEngineOptions = {}): CoreEng
 
       runCommand(createNodeCommand(node));
 
-      for (const plugin of options.plugins ?? []) {
-        plugin.afterNodeCreate?.(cloneNode(node), api);
-      }
+      runAfterNodeCreateHooks(cloneNode(node));
 
       return cloneNode(node);
     },
@@ -885,7 +1484,7 @@ export const createCoreEngine = (options: CreateCoreEngineOptions = {}): CoreEng
       const nextNode = cloneNode(baseNodeInput, nextPorts ?? existing.ports);
       const storedNode = input.groupId === null ? cloneNodeWithoutGroup(nextNode) : nextNode;
 
-      applyNodeState(nodeId, storedNode as Node);
+      applyNodeState(nodeId, storedNode);
       pushHistoryCommand(
         createUpdateNodeCommand(nodeId, cloneNode(existing), cloneNode(requireNode(nodeId)), isDragLikeUpdate(input))
       );
@@ -969,6 +1568,11 @@ export const createCoreEngine = (options: CreateCoreEngineOptions = {}): CoreEng
         groupIds: []
       });
     },
+    execute: (executionOptions) => executeGraph(executionOptions),
+    invalidateExecutionCache: (nodeIds) => {
+      ensureEngineActive(disposed);
+      return invalidateExecutionCache(nodeIds);
+    },
     beginTransaction: (label = "transaction") => {
       ensureEngineActive(disposed);
       state.history.transactionStack.push({
@@ -1032,9 +1636,30 @@ export const createCoreEngine = (options: CreateCoreEngineOptions = {}): CoreEng
 
       disposed = true;
 
+      for (const controller of activeExecutions.values()) {
+        controller.abort();
+      }
+
+      activeExecutions.clear();
+
       for (const listenerSet of Object.values(listeners)) {
         listenerSet.clear();
       }
+
+      for (const runtime of [...pluginRuntimes.values()]) {
+        try {
+          runtime.cleanup?.();
+          runtime.plugin.dispose?.({
+            engine: api,
+            executionPolicy: EXECUTION_POLICY
+          });
+        } catch {
+          // Disposal errors are isolated from engine shutdown.
+        }
+      }
+
+      pluginRuntimes.clear();
+      executionCache.clear();
 
       state.nodeMap.clear();
       state.edgeMap.clear();
@@ -1049,6 +1674,10 @@ export const createCoreEngine = (options: CreateCoreEngineOptions = {}): CoreEng
     },
     isDisposed: () => disposed
   };
+
+  for (const plugin of options.plugins ?? []) {
+    registerPlugin(plugin);
+  }
 
   return api;
 };

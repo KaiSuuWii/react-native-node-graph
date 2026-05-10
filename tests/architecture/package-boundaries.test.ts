@@ -4,6 +4,13 @@ import { describe, expect, it } from "vitest";
 
 type PackageManifest = {
   dependencies?: Record<string, string>;
+  private?: boolean;
+  publishConfig?: {
+    access?: string;
+  };
+  repository?: {
+    url?: string;
+  };
 };
 
 const readPackage = (relativePath: string): PackageManifest => {
@@ -37,5 +44,28 @@ describe("package boundaries", () => {
     expect(dependencyNames.sort()).toEqual(
       ["@react-native-node-graph/core", "@react-native-node-graph/shared"].sort()
     );
+  });
+
+  it("keeps publishable package metadata ready for npm release", () => {
+    const packagePaths = [
+      "packages/shared/package.json",
+      "packages/core/package.json",
+      "packages/renderer-skia/package.json",
+      "packages/renderer-svg/package.json",
+      "packages/renderer-web/package.json",
+      "packages/plugins/package.json",
+      "packages/examples/package.json",
+      "packages/docs/package.json"
+    ];
+
+    packagePaths.forEach((packagePath) => {
+      const manifest = readPackage(packagePath);
+
+      expect(manifest.private).toBe(false);
+      expect(manifest.publishConfig?.access).toBe("public");
+      expect(manifest.repository?.url).toBe(
+        "https://github.com/KaiSuuWii/react-native-node-graph.git"
+      );
+    });
   });
 });

@@ -1,23 +1,17 @@
 import type { GraphInteractionContract, GraphSnapshot } from "@react-native-node-graph/core";
 import type { GraphInteractionEventPayload } from "@react-native-node-graph/shared";
 import { createCameraState } from "./camera.js";
-import { createGraphEditor } from "./editor.js";
-import {
-  boundsIntersect,
-  buildSceneSpatialIndex,
-  hitTestSceneBounds,
-  hitTestScenePoint,
-  isPointInBounds
-} from "./hit-testing.js";
-import { createSpatialIndex } from "./spatial-index.js";
 import { buildSkiaRenderScene } from "./scene.js";
-import { resolveInteractionOptions, resolveRendererTheme } from "./theme.js";
+import {
+  resolveRendererAccessibilityOptions,
+  resolveDebugOptions,
+  resolveInteractionOptions,
+  resolveRendererTheme,
+  resolveVirtualizationOptions
+} from "./theme.js";
 import type {
   BuildSceneOptions,
   NodeGraphRendererProps,
-  RendererInteractionOptions,
-  RendererPluginPlaceholder,
-  RendererTheme,
   SkiaRenderPlan
 } from "./types.js";
 
@@ -32,7 +26,11 @@ export const createSkiaRenderPlan = (
         interaction: interaction ?? { onEvent: () => undefined },
         viewport: { width: 1280, height: 720 }
       };
-  const theme = resolveRendererTheme(props.theme);
+  const theme = resolveRendererTheme(
+    props.theme,
+    props.themeMode,
+    props.themeScale
+  );
   const interactionOptions = resolveInteractionOptions(props.interactionOptions);
   const sceneOptions: BuildSceneOptions = {
     snapshot: props.snapshot,
@@ -42,7 +40,12 @@ export const createSkiaRenderPlan = (
     plugins: props.plugins ?? [],
     interaction: props.interaction,
     interactionOptions,
-    ...(props.interactionState !== undefined ? { interactionState: props.interactionState } : {})
+    virtualization: resolveVirtualizationOptions(props.virtualization),
+    debug: resolveDebugOptions(props.debug),
+    accessibility: resolveRendererAccessibilityOptions(props.accessibility),
+    ...(props.interactionState !== undefined ? { interactionState: props.interactionState } : {}),
+    ...(props.previousScene !== undefined ? { previousScene: props.previousScene } : {}),
+    ...(props.frameTimestampMs !== undefined ? { frameTimestampMs: props.frameTimestampMs } : {})
   };
   const scene = buildSkiaRenderScene(sceneOptions);
   const nodeLayer = scene.layers.find((layer) => layer.kind === "node");
@@ -68,16 +71,47 @@ const isRendererProps = (
 ): input is NodeGraphRendererProps => "snapshot" in input;
 
 export { DEFAULT_CAMERA_STATE, clampZoom, createCameraState, graphToScreenSpace, panCamera, screenToGraphSpace, zoomCameraAtScreenPoint } from "./camera.js";
+export { runRendererBenchmarkSuite } from "./benchmark.js";
+export type { RendererBenchmarkResult, RendererBenchmarkScenario } from "./benchmark.js";
 export { createGraphEditor } from "./editor.js";
-export { boundsIntersect, buildSceneSpatialIndex, hitTestSceneBounds, hitTestScenePoint, isPointInBounds } from "./hit-testing.js";
+export { buildSceneSpatialIndex, hitTestSceneBounds, hitTestScenePoint, isPointInBounds } from "./hit-testing.js";
 export { createBezierCurve, createEdgeLayout, createGroupLayout, createNodeLayout, getNodeBounds, getPortAnchor } from "./layout.js";
+export {
+  boundsIntersect,
+  expandBounds,
+  getCurveBounds,
+  getGroupItemBounds,
+  getNodeSnapshotBounds,
+  getViewportBounds,
+  resolveNodeLevelOfDetail,
+  unionBounds
+} from "./performance.js";
 export { buildSkiaRenderScene } from "./scene.js";
 export { createSpatialIndex } from "./spatial-index.js";
-export { DEFAULT_INTERACTION_OPTIONS, DEFAULT_RENDERER_THEME, resolveInteractionOptions, resolveRendererTheme } from "./theme.js";
+export {
+  createRendererThemeController,
+  DARK_RENDERER_THEME,
+  DEFAULT_RENDERER_ACCESSIBILITY,
+  DEFAULT_DEBUG_OPTIONS,
+  DEFAULT_INTERACTION_OPTIONS,
+  DEFAULT_RENDERER_THEME,
+  DEFAULT_VIRTUALIZATION_OPTIONS,
+  LIGHT_RENDERER_THEME,
+  resolveRendererAccessibilityOptions,
+  resolveDebugOptions,
+  resolveInteractionOptions,
+  resolveRendererTheme,
+  resolveVirtualizationOptions
+} from "./theme.js";
 export type {
   BuildSceneOptions,
   CameraState,
   CameraVelocity,
+  DebugBoundsOverlay,
+  DebugOverlay,
+  DebugPathOverlay,
+  DebugTextOverlay,
+  AccessibilityDescriptor,
   ConnectionPreviewState,
   CreateGraphEditorOptions,
   CubicBezierCurve,
@@ -93,21 +127,41 @@ export type {
   PortSpatialIndexEntry,
   RenderConnectionPreview,
   RenderEdgeLayout,
+  RenderNodeLevelOfDetail,
   RenderMarqueeSelection,
   RenderNodeLayout,
   RenderPortLayout,
+  RendererDebugOptions,
   RendererEdgeSnapshot,
   RendererGridTheme,
   RendererInteractionOptions,
   RendererInteractionState,
+  RendererInteractionHandler,
+  RendererAccessibilityOptions,
+  RendererLevelOfDetailThresholds,
   RendererNodeSnapshot,
   RendererNodeTheme,
-  RendererPluginPlaceholder,
+  RendererNodeBadgeVisual,
+  RendererNodeVisual,
+  RendererPlugin,
+  RendererPluginContext,
+  RendererPluginDescriptor,
+  RendererPluginOverlay,
   RendererSelectionTheme,
+  RendererFocusTheme,
+  RendererEdgeLabelVisual,
+  RendererEdgeVisual,
   RendererTheme,
+  RendererThemeController,
+  RendererThemeControllerState,
+  RendererThemeMode,
+  RendererThemeScale,
+  RendererVirtualizationOptions,
   RendererViewport,
+  SceneAccessibilityState,
   SceneBackgroundLayer,
   SceneDebugLayer,
+  SceneDiagnostics,
   SceneEdgeLayer,
   SceneGridLayer,
   SceneInteractionLayer,
@@ -116,6 +170,7 @@ export type {
   SceneLayer,
   SceneLayerKind,
   SceneNodeLayer,
+  ScenePluginLayer,
   SceneSelectionLayer,
   SelectionHighlight,
   SkiaRenderPlan,

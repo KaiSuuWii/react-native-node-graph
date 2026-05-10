@@ -1,10 +1,25 @@
 import type {
+  RendererAccessibilityOptions,
+  RendererDebugOptions,
   RendererInteractionOptions,
   RendererTheme,
-  RendererTheme as RendererThemeInput
+  RendererThemeController,
+  RendererThemeControllerState,
+  RendererThemeMode,
+  RendererThemeScale,
+  RendererTheme as RendererThemeInput,
+  RendererVirtualizationOptions
 } from "./types.js";
 
-export const DEFAULT_RENDERER_THEME: RendererTheme = {
+const THEME_SCALE_FACTORS: Readonly<Record<RendererThemeScale, number>> = {
+  comfortable: 1,
+  large: 1.2
+};
+
+export const LIGHT_RENDERER_THEME: RendererTheme = {
+  mode: "light",
+  scale: "comfortable",
+  fontScale: 1,
   backgroundColor: "#f3f1ea",
   groupColor: "rgba(63, 94, 88, 0.10)",
   debugColor: "#6b4f3b",
@@ -36,8 +51,56 @@ export const DEFAULT_RENDERER_THEME: RendererTheme = {
   selection: {
     color: "#0f7b6c",
     width: 2
+  },
+  focus: {
+    color: "#c2410c",
+    width: 3
   }
 };
+
+export const DARK_RENDERER_THEME: RendererTheme = {
+  mode: "dark",
+  scale: "comfortable",
+  fontScale: 1,
+  backgroundColor: "#121a1d",
+  groupColor: "rgba(106, 161, 148, 0.16)",
+  debugColor: "#f3c58b",
+  grid: {
+    visible: true,
+    spacing: 24,
+    majorSpacingMultiplier: 4,
+    color: "rgba(170, 195, 191, 0.12)",
+    majorColor: "rgba(170, 195, 191, 0.24)"
+  },
+  node: {
+    cornerRadius: 16,
+    headerHeight: 28,
+    bodyColor: "#1e2b2f",
+    headerColor: "#284148",
+    borderColor: "#87b3ad",
+    borderWidth: 1.5,
+    labelColor: "#f3fbf9",
+    subLabelColor: "#b7d0cb",
+    portRadius: 5,
+    portColor: "#9ad4cb"
+  },
+  edge: {
+    width: 2,
+    color: "#83b7b0",
+    selectedColor: "#4fd1c5",
+    invalidColor: "#f97373"
+  },
+  selection: {
+    color: "#4fd1c5",
+    width: 2
+  },
+  focus: {
+    color: "#f59e0b",
+    width: 3
+  }
+};
+
+export const DEFAULT_RENDERER_THEME: RendererTheme = LIGHT_RENDERER_THEME;
 
 export const DEFAULT_INTERACTION_OPTIONS: RendererInteractionOptions = {
   panEnabled: true,
@@ -49,32 +112,171 @@ export const DEFAULT_INTERACTION_OPTIONS: RendererInteractionOptions = {
   longPressMarqueeEnabled: true
 };
 
-export const resolveRendererTheme = (
-  theme?: Partial<RendererThemeInput>
-): RendererTheme => ({
-  ...DEFAULT_RENDERER_THEME,
-  ...theme,
-  grid: {
-    ...DEFAULT_RENDERER_THEME.grid,
-    ...theme?.grid
-  },
-  node: {
-    ...DEFAULT_RENDERER_THEME.node,
-    ...theme?.node
-  },
-  edge: {
-    ...DEFAULT_RENDERER_THEME.edge,
-    ...theme?.edge
-  },
-  selection: {
-    ...DEFAULT_RENDERER_THEME.selection,
-    ...theme?.selection
+export const DEFAULT_VIRTUALIZATION_OPTIONS: RendererVirtualizationOptions = {
+  enabled: true,
+  cullingPadding: 160,
+  suppressOffscreenNodes: true,
+  suppressOffscreenEdges: true,
+  preserveSelectedElements: true,
+  incrementalRedrawEnabled: true,
+  levelOfDetail: {
+    labels: 0.45,
+    ports: 0.7,
+    decorations: 1,
+    edgeSimplification: 0.55
   }
+};
+
+export const DEFAULT_DEBUG_OPTIONS: RendererDebugOptions = {
+  enabled: false,
+  showFpsOverlay: false,
+  showRenderBounds: false,
+  showHitRegions: false,
+  showEdgeRouting: false
+};
+
+export const DEFAULT_RENDERER_ACCESSIBILITY: RendererAccessibilityOptions = {
+  enabled: true,
+  keyboardNavigationEnabled: true,
+  screenReaderEnabled: true,
+  scalableUiEnabled: true,
+  announceValidationErrors: true
+};
+
+const withThemeScale = (
+  theme: RendererTheme,
+  scale: RendererThemeScale
+): RendererTheme => {
+  const factor = THEME_SCALE_FACTORS[scale];
+
+  return {
+    ...theme,
+    scale,
+    fontScale: factor,
+    node: {
+      ...theme.node,
+      cornerRadius: Number((theme.node.cornerRadius * factor).toFixed(2)),
+      headerHeight: Number((theme.node.headerHeight * factor).toFixed(2)),
+      borderWidth: Number((theme.node.borderWidth * factor).toFixed(2)),
+      portRadius: Number((theme.node.portRadius * factor).toFixed(2))
+    },
+    selection: {
+      ...theme.selection,
+      width: Number((theme.selection.width * factor).toFixed(2))
+    },
+    focus: {
+      ...theme.focus,
+      width: Number((theme.focus.width * factor).toFixed(2))
+    }
+  };
+};
+
+const getThemeBase = (mode: RendererThemeMode): RendererTheme =>
+  mode === "dark" ? DARK_RENDERER_THEME : LIGHT_RENDERER_THEME;
+
+export const resolveRendererAccessibilityOptions = (
+  options?: Partial<RendererAccessibilityOptions>
+): RendererAccessibilityOptions => ({
+  ...DEFAULT_RENDERER_ACCESSIBILITY,
+  ...options
 });
+
+export const resolveRendererTheme = (
+  theme?: Partial<RendererThemeInput>,
+  mode: RendererThemeMode = "light",
+  scale: RendererThemeScale = "comfortable"
+): RendererTheme => {
+  const baseTheme = withThemeScale(getThemeBase(mode), scale);
+
+  return {
+    ...baseTheme,
+    ...theme,
+    mode,
+    scale,
+    fontScale: theme?.fontScale ?? baseTheme.fontScale,
+    grid: {
+      ...baseTheme.grid,
+      ...theme?.grid
+    },
+    node: {
+      ...baseTheme.node,
+      ...theme?.node
+    },
+    edge: {
+      ...baseTheme.edge,
+      ...theme?.edge
+    },
+    selection: {
+      ...baseTheme.selection,
+      ...theme?.selection
+    },
+    focus: {
+      ...baseTheme.focus,
+      ...theme?.focus
+    }
+  };
+};
+
+export const createRendererThemeController = (
+  initialState: Partial<RendererThemeControllerState> = {},
+  themeOverride?: Partial<RendererThemeInput>
+): RendererThemeController => {
+  let state: RendererThemeControllerState = {
+    mode: initialState.mode ?? "light",
+    scale: initialState.scale ?? "comfortable"
+  };
+
+  const getTheme = (): RendererTheme =>
+    resolveRendererTheme(themeOverride, state.mode, state.scale);
+
+  return {
+    getState: () => ({ ...state }),
+    getTheme,
+    setMode: (mode) => {
+      state = {
+        ...state,
+        mode
+      };
+      return getTheme();
+    },
+    setScale: (scale) => {
+      state = {
+        ...state,
+        scale
+      };
+      return getTheme();
+    },
+    toggleMode: () => {
+      state = {
+        ...state,
+        mode: state.mode === "light" ? "dark" : "light"
+      };
+      return getTheme();
+    }
+  };
+};
 
 export const resolveInteractionOptions = (
   options?: Partial<RendererInteractionOptions>
 ): RendererInteractionOptions => ({
   ...DEFAULT_INTERACTION_OPTIONS,
+  ...options
+});
+
+export const resolveVirtualizationOptions = (
+  options?: Partial<RendererVirtualizationOptions>
+): RendererVirtualizationOptions => ({
+  ...DEFAULT_VIRTUALIZATION_OPTIONS,
+  ...options,
+  levelOfDetail: {
+    ...DEFAULT_VIRTUALIZATION_OPTIONS.levelOfDetail,
+    ...options?.levelOfDetail
+  }
+});
+
+export const resolveDebugOptions = (
+  options?: Partial<RendererDebugOptions>
+): RendererDebugOptions => ({
+  ...DEFAULT_DEBUG_OPTIONS,
   ...options
 });

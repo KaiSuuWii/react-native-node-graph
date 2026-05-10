@@ -21,7 +21,6 @@ import {
   type GraphSnapshot,
   type GroupId,
   type Node,
-  type NodeInput,
   type Port,
   type PortId,
   type ValidationError,

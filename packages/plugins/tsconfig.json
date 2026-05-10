@@ -12,6 +12,9 @@
     },
     {
       "path": "../core"
+    },
+    {
+      "path": "../renderer-skia"
     }
   ],
   "include": ["src/**/*.ts"],

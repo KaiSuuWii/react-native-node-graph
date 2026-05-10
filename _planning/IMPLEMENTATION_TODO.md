@@ -4,17 +4,17 @@ This file is now the master index. Detailed work has been split into sprint file
 
 ## Sprint index
 
-- [ ] Sprint 01: Foundation and architecture
+- [x] Sprint 01: Foundation and architecture
   - File: [sprints/SPRINT_01_foundation_and_architecture.md](sprints/SPRINT_01_foundation_and_architecture.md)
 - [x] Sprint 02: Core graph model and CRUD
   - File: [sprints/SPRINT_02_core_graph_model_and_crud.md](sprints/SPRINT_02_core_graph_model_and_crud.md)
 - [x] Sprint 03: Validation, selection, history, and serialization
   - File: [sprints/SPRINT_03_validation_selection_history_serialization.md](sprints/SPRINT_03_validation_selection_history_serialization.md)
-- [ ] Sprint 04: Skia renderer foundation
+- [x] Sprint 04: Skia renderer foundation
   - File: [sprints/SPRINT_04_skia_renderer_foundation.md](sprints/SPRINT_04_skia_renderer_foundation.md)
-- [ ] Sprint 05: Interaction, hit testing, and graph editing UX
+- [x] Sprint 05: Interaction, hit testing, and graph editing UX
   - File: [sprints/SPRINT_05_interaction_hit_testing_editing_ux.md](sprints/SPRINT_05_interaction_hit_testing_editing_ux.md)
-- [ ] Sprint 06: Performance, virtualization, and diagnostics
+- [x] Sprint 06: Performance, virtualization, and diagnostics
   - File: [sprints/SPRINT_06_performance_virtualization_diagnostics.md](sprints/SPRINT_06_performance_virtualization_diagnostics.md)
 - [ ] Sprint 07: Execution engine and plugin systems
   - File: [sprints/SPRINT_07_execution_engine_and_plugin_systems.md](sprints/SPRINT_07_execution_engine_and_plugin_systems.md)

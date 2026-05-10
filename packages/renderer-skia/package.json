@@ -1,20 +1,45 @@
 {
   "name": "@react-native-node-graph/renderer-skia",
   "version": "0.1.0",
-  "private": true,
+  "private": false,
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     }
   },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/KaiSuuWii/react-native-node-graph.git"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/KaiSuuWii/react-native-node-graph",
+  "bugs": {
+    "url": "https://github.com/KaiSuuWii/react-native-node-graph/issues"
+  },
+  "keywords": [
+    "graph",
+    "renderer",
+    "skia",
+    "accessibility",
+    "react-native"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run packages/renderer-skia/tests"
+    "test": "vitest run packages/renderer-skia/tests",
+    "benchmark": "vitest run packages/renderer-skia/tests/performance-benchmark.test.ts"
   },
   "dependencies": {
     "@react-native-node-graph/core": "0.1.0",

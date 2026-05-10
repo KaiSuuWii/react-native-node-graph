@@ -10,7 +10,13 @@ import type {
   SelectionChangeMode,
   SelectionSnapshot
 } from "@react-native-node-graph/core";
-import type { Bounds, EdgeId, NodeId, Vec2 } from "@react-native-node-graph/shared";
+import type {
+  Bounds,
+  EdgeId,
+  GraphInteractionEventPayload,
+  NodeId,
+  Vec2
+} from "@react-native-node-graph/shared";
 
 export interface CameraVelocity {
   readonly x: number;
@@ -62,7 +68,18 @@ export interface RendererSelectionTheme {
   readonly width: number;
 }
 
+export interface RendererFocusTheme {
+  readonly color: string;
+  readonly width: number;
+}
+
+export type RendererThemeMode = "light" | "dark";
+export type RendererThemeScale = "comfortable" | "large";
+
 export interface RendererTheme {
+  readonly mode: RendererThemeMode;
+  readonly scale: RendererThemeScale;
+  readonly fontScale: number;
   readonly backgroundColor: string;
   readonly groupColor: string;
   readonly debugColor: string;
@@ -70,11 +87,80 @@ export interface RendererTheme {
   readonly node: RendererNodeTheme;
   readonly edge: RendererEdgeTheme;
   readonly selection: RendererSelectionTheme;
+  readonly focus: RendererFocusTheme;
 }
 
-export interface RendererPluginPlaceholder {
+export interface RendererNodeBadgeVisual {
+  readonly kind: "badge";
+  readonly label: string;
+  readonly color: string;
+}
+
+export type RendererNodeVisual = RendererNodeBadgeVisual;
+
+export interface RendererEdgeLabelVisual {
+  readonly kind: "label";
+  readonly label: string;
+  readonly color: string;
+  readonly position: Vec2;
+}
+
+export type RendererEdgeVisual = RendererEdgeLabelVisual;
+
+export interface RendererPluginOverlay {
   readonly id: string;
-  readonly kind?: string;
+  readonly kind: "bounds" | "path" | "text";
+  readonly label: string;
+  readonly color: string;
+  readonly bounds?: Bounds;
+  readonly points?: readonly Vec2[];
+  readonly position?: Vec2;
+  readonly text?: string;
+}
+
+export interface RendererInteractionHandler {
+  readonly id: string;
+  readonly description: string;
+}
+
+export interface RendererPluginDescriptor {
+  readonly name: string;
+  readonly interactionHandlerIds: readonly string[];
+}
+
+export interface RendererPluginContext {
+  readonly snapshot: GraphSnapshot;
+  readonly viewport: RendererViewport;
+  readonly camera: CameraState;
+  readonly theme: RendererTheme;
+  readonly interactionState?: RendererInteractionState;
+}
+
+export interface RendererScenePluginContext extends RendererPluginContext {
+  readonly nodes: readonly RenderNodeLayout[];
+  readonly edges: readonly RenderEdgeLayout[];
+}
+
+export interface RendererPlugin {
+  readonly name: string;
+  readonly interactionHandlers?: readonly RendererInteractionHandler[];
+  readonly decorateNodeLayout?: (
+    layout: RenderNodeLayout,
+    node: GraphNodeSnapshot,
+    context: RendererPluginContext
+  ) => RenderNodeLayout;
+  readonly decorateEdgeLayout?: (
+    layout: RenderEdgeLayout,
+    edge: GraphEdgeSnapshot,
+    context: RendererPluginContext
+  ) => RenderEdgeLayout;
+  readonly createOverlays?: (
+    context: RendererScenePluginContext
+  ) => readonly RendererPluginOverlay[];
+  readonly onInteractionEvent?: (
+    payload: GraphInteractionEventPayload,
+    context: RendererPluginContext
+  ) => void;
 }
 
 export interface RendererInteractionOptions {
@@ -85,6 +171,60 @@ export interface RendererInteractionOptions {
   readonly hitSlop: number;
   readonly edgeHitWidth: number;
   readonly longPressMarqueeEnabled: boolean;
+}
+
+export interface RendererLevelOfDetailThresholds {
+  readonly labels: number;
+  readonly ports: number;
+  readonly decorations: number;
+  readonly edgeSimplification: number;
+}
+
+export interface RendererVirtualizationOptions {
+  readonly enabled: boolean;
+  readonly cullingPadding: number;
+  readonly suppressOffscreenNodes: boolean;
+  readonly suppressOffscreenEdges: boolean;
+  readonly preserveSelectedElements: boolean;
+  readonly incrementalRedrawEnabled: boolean;
+  readonly levelOfDetail: RendererLevelOfDetailThresholds;
+}
+
+export interface RendererDebugOptions {
+  readonly enabled: boolean;
+  readonly showFpsOverlay: boolean;
+  readonly showRenderBounds: boolean;
+  readonly showHitRegions: boolean;
+  readonly showEdgeRouting: boolean;
+}
+
+export interface RendererAccessibilityOptions {
+  readonly enabled: boolean;
+  readonly keyboardNavigationEnabled: boolean;
+  readonly screenReaderEnabled: boolean;
+  readonly scalableUiEnabled: boolean;
+  readonly announceValidationErrors: boolean;
+  readonly focusTargetId?: string;
+}
+
+export interface RendererThemeControllerState {
+  readonly mode: RendererThemeMode;
+  readonly scale: RendererThemeScale;
+}
+
+export interface RendererThemeController {
+  readonly getState: () => RendererThemeControllerState;
+  readonly getTheme: () => RendererTheme;
+  readonly setMode: (mode: RendererThemeMode) => RendererTheme;
+  readonly setScale: (scale: RendererThemeScale) => RendererTheme;
+  readonly toggleMode: () => RendererTheme;
+}
+
+export interface RenderNodeLevelOfDetail {
+  readonly zoom: number;
+  readonly showLabel: boolean;
+  readonly showPorts: boolean;
+  readonly showDecorations: boolean;
 }
 
 export interface ConnectionPreviewState {
@@ -113,10 +253,17 @@ export interface NodeGraphRendererProps {
   readonly interaction: GraphInteractionContract;
   readonly viewport: RendererViewport;
   readonly theme?: Partial<RendererTheme>;
-  readonly plugins?: readonly RendererPluginPlaceholder[];
+  readonly themeMode?: RendererThemeMode;
+  readonly themeScale?: RendererThemeScale;
+  readonly plugins?: readonly RendererPlugin[];
   readonly interactionOptions?: Partial<RendererInteractionOptions>;
+  readonly virtualization?: Partial<RendererVirtualizationOptions>;
+  readonly debug?: Partial<RendererDebugOptions>;
+  readonly accessibility?: Partial<RendererAccessibilityOptions>;
   readonly camera?: Partial<CameraState>;
   readonly interactionState?: RendererInteractionState;
+  readonly previousScene?: SkiaRenderScene;
+  readonly frameTimestampMs?: number;
 }
 
 export type SceneLayerKind =
@@ -127,6 +274,7 @@ export type SceneLayerKind =
   | "node"
   | "selection"
   | "interaction"
+  | "plugin"
   | "debug";
 
 export interface SceneBackgroundLayer {
@@ -153,6 +301,7 @@ export interface SceneGroupItem {
   readonly size: Vec2;
   readonly color: string;
   readonly label: string;
+  readonly accessibilityLabel: string;
 }
 
 export interface SceneGroupLayer {
@@ -167,6 +316,7 @@ export interface RenderPortLayout {
   readonly position: Vec2;
   readonly radius: number;
   readonly color: string;
+  readonly accessibilityLabel: string;
 }
 
 export interface RenderNodeLayout {
@@ -184,6 +334,10 @@ export interface RenderNodeLayout {
   readonly labelColor: string;
   readonly subLabelColor: string;
   readonly ports: readonly RenderPortLayout[];
+  readonly lod: RenderNodeLevelOfDetail;
+  readonly pluginVisuals: readonly RendererNodeVisual[];
+  readonly accessibilityLabel: string;
+  readonly accessibilityHint: string;
 }
 
 export interface SceneNodeLayer {
@@ -203,10 +357,15 @@ export interface RenderEdgeLayout {
   readonly source: NodeId;
   readonly target: NodeId;
   readonly curve: CubicBezierCurve;
+  readonly routePoints: readonly Vec2[];
   readonly width: number;
   readonly color: string;
   readonly selected: boolean;
   readonly invalid: boolean;
+  readonly simplified: boolean;
+  readonly pluginVisuals: readonly RendererEdgeVisual[];
+  readonly accessibilityLabel: string;
+  readonly accessibilityHint: string;
 }
 
 export interface SceneEdgeLayer {
@@ -251,8 +410,79 @@ export interface SceneInteractionLayer {
 export interface SceneDebugLayer {
   readonly kind: "debug";
   readonly enabled: boolean;
+  readonly fps?: number;
   readonly messages: readonly string[];
+  readonly overlays: readonly DebugOverlay[];
   readonly color: string;
+}
+
+export interface ScenePluginLayer {
+  readonly kind: "plugin";
+  readonly overlays: readonly RendererPluginOverlay[];
+  readonly interactions: readonly RendererInteractionHandler[];
+}
+
+export type AccessibilityDescriptorRole = "canvas" | "group" | "node" | "edge";
+
+export interface AccessibilityDescriptor {
+  readonly id: string;
+  readonly role: AccessibilityDescriptorRole;
+  readonly label: string;
+  readonly hint: string;
+  readonly focused: boolean;
+}
+
+export interface SceneAccessibilityState {
+  readonly enabled: boolean;
+  readonly screenReaderEnabled: boolean;
+  readonly scalableUiEnabled: boolean;
+  readonly keyboardNavigationEnabled: boolean;
+  readonly focusTargetId?: string;
+  readonly focusOrder: readonly string[];
+  readonly descriptors: Readonly<Record<string, AccessibilityDescriptor>>;
+  readonly keyboardNavigationPolicy: readonly string[];
+  readonly announcements: readonly string[];
+}
+
+export interface DebugBoundsOverlay {
+  readonly kind: "bounds";
+  readonly label: string;
+  readonly bounds: Bounds;
+  readonly color: string;
+}
+
+export interface DebugPathOverlay {
+  readonly kind: "path";
+  readonly label: string;
+  readonly points: readonly Vec2[];
+  readonly color: string;
+}
+
+export interface DebugTextOverlay {
+  readonly kind: "text";
+  readonly label: string;
+  readonly position: Vec2;
+  readonly text: string;
+  readonly color: string;
+}
+
+export type DebugOverlay = DebugBoundsOverlay | DebugPathOverlay | DebugTextOverlay;
+
+export interface SceneDiagnostics {
+  readonly viewportBounds: Bounds;
+  readonly redrawBounds?: Bounds;
+  readonly lod: RenderNodeLevelOfDetail;
+  readonly totalNodeCount: number;
+  readonly visibleNodeCount: number;
+  readonly culledNodeCount: number;
+  readonly totalEdgeCount: number;
+  readonly visibleEdgeCount: number;
+  readonly culledEdgeCount: number;
+  readonly totalGroupCount: number;
+  readonly visibleGroupCount: number;
+  readonly frameTimestampMs?: number;
+  readonly frameDurationMs?: number;
+  readonly fps?: number;
 }
 
 export type SceneLayer =
@@ -263,16 +493,19 @@ export type SceneLayer =
   | SceneNodeLayer
   | SceneSelectionLayer
   | SceneInteractionLayer
+  | ScenePluginLayer
   | SceneDebugLayer;
 
 export interface SkiaRenderScene {
   readonly snapshot: GraphSnapshot;
   readonly camera: CameraState;
   readonly viewport: RendererViewport;
+  readonly diagnostics: SceneDiagnostics;
+  readonly accessibility: SceneAccessibilityState;
   readonly layers: readonly SceneLayer[];
   readonly interaction: GraphInteractionContract;
   readonly theme: RendererTheme;
-  readonly plugins: readonly RendererPluginPlaceholder[];
+  readonly plugins: readonly RendererPluginDescriptor[];
   readonly interactionOptions: RendererInteractionOptions;
 }
 
@@ -288,10 +521,15 @@ export interface BuildSceneOptions {
   readonly viewport: RendererViewport;
   readonly camera: CameraState;
   readonly theme: RendererTheme;
-  readonly plugins: readonly RendererPluginPlaceholder[];
+  readonly plugins: readonly RendererPlugin[];
   readonly interaction: GraphInteractionContract;
   readonly interactionOptions: RendererInteractionOptions;
+  readonly virtualization: RendererVirtualizationOptions;
+  readonly debug: RendererDebugOptions;
+  readonly accessibility: RendererAccessibilityOptions;
   readonly interactionState?: RendererInteractionState;
+  readonly previousScene?: SkiaRenderScene;
+  readonly frameTimestampMs?: number;
 }
 
 export interface EdgeRenderState {
@@ -383,8 +621,13 @@ export interface CreateGraphEditorOptions {
   readonly viewport: RendererViewport;
   readonly interaction?: GraphInteractionContract;
   readonly theme?: Partial<RendererTheme>;
-  readonly plugins?: readonly RendererPluginPlaceholder[];
+  readonly themeMode?: RendererThemeMode;
+  readonly themeScale?: RendererThemeScale;
+  readonly plugins?: readonly RendererPlugin[];
   readonly interactionOptions?: Partial<RendererInteractionOptions>;
+  readonly virtualization?: Partial<RendererVirtualizationOptions>;
+  readonly debug?: Partial<RendererDebugOptions>;
+  readonly accessibility?: Partial<RendererAccessibilityOptions>;
   readonly camera?: Partial<CameraState>;
 }
 

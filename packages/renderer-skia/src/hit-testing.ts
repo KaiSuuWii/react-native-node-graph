@@ -1,12 +1,11 @@
-import { boundsFromPoints, vec2, type Bounds, type Vec2 } from "@react-native-node-graph/shared";
+import { vec2, type Bounds, type Vec2 } from "@react-native-node-graph/shared";
 
+import { getCurveBounds } from "./performance.js";
 import { createSpatialIndex } from "./spatial-index.js";
 import type {
   CubicBezierCurve,
-  EdgeSpatialIndexEntry,
   HitTestResult,
   HitTestTarget,
-  PortSpatialIndexEntry,
   SceneNodeLayer,
   SkiaRenderScene,
   SpatialIndex,
@@ -26,12 +25,6 @@ export const isPointInBounds = (point: Vec2, bounds: Bounds): boolean =>
   point.x <= bounds.max.x &&
   point.y >= bounds.min.y &&
   point.y <= bounds.max.y;
-
-export const boundsIntersect = (left: Bounds, right: Bounds): boolean =>
-  left.min.x <= right.max.x &&
-  left.max.x >= right.min.x &&
-  left.min.y <= right.max.y &&
-  left.max.y >= right.min.y;
 
 const distanceToSegment = (point: Vec2, start: Vec2, end: Vec2): number => {
   const deltaX = end.x - start.x;
@@ -77,15 +70,6 @@ const distanceToBezierCurve = (point: Vec2, curve: CubicBezierCurve, samples = 2
   }
 
   return minDistance;
-};
-
-const createEdgeBounds = (curve: CubicBezierCurve, tolerance: number): Bounds => {
-  const bounds = boundsFromPoints([curve.start, curve.control1, curve.control2, curve.end]);
-
-  return {
-    min: vec2(bounds.min.x - tolerance, bounds.min.y - tolerance),
-    max: vec2(bounds.max.x + tolerance, bounds.max.y + tolerance)
-  };
 };
 
 const getNodeLayer = (scene: SkiaRenderScene): SceneNodeLayer | undefined =>
@@ -141,7 +125,7 @@ export const buildSceneSpatialIndex = (
         index.insert({
           kind: "edge",
           id: edge.id,
-          bounds: createEdgeBounds(edge.curve, scene.interactionOptions.edgeHitWidth)
+          bounds: getCurveBounds(edge.curve, scene.interactionOptions.edgeHitWidth)
         });
       });
     }

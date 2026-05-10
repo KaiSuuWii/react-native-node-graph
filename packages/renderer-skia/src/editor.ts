@@ -1,9 +1,7 @@
 import type {
   CoreEngine,
-  Edge,
   GraphInteractionContract,
   GraphSnapshot,
-  GroupId,
   PortId,
   SelectionChangeMode,
   SelectionSnapshot
@@ -13,7 +11,13 @@ import { addVec2, subtractVec2, vec2, type Bounds, type NodeId, type Vec2 } from
 import { createCameraState, panCamera, screenToGraphSpace, zoomCameraAtScreenPoint } from "./camera.js";
 import { buildSceneSpatialIndex, hitTestSceneBounds, hitTestScenePoint } from "./hit-testing.js";
 import { buildSkiaRenderScene } from "./scene.js";
-import { resolveInteractionOptions, resolveRendererTheme } from "./theme.js";
+import {
+  resolveRendererAccessibilityOptions,
+  resolveDebugOptions,
+  resolveInteractionOptions,
+  resolveRendererTheme,
+  resolveVirtualizationOptions
+} from "./theme.js";
 import type {
   CameraState,
   ConnectionPreviewState,
@@ -106,32 +110,68 @@ const getPortPosition = (
 const clearConnectionPreview = (
   state: RendererInteractionState
 ): RendererInteractionState => {
-  const { connectionPreview: _connectionPreview, ...rest } = state;
+  const rest = { ...state };
+  delete (
+    rest as {
+      connectionPreview?: RendererInteractionState["connectionPreview"];
+    }
+  ).connectionPreview;
   return rest;
 };
 
 const clearMarqueeSelection = (
   state: RendererInteractionState
 ): RendererInteractionState => {
-  const { marqueeSelection: _marqueeSelection, ...rest } = state;
+  const rest = { ...state };
+  delete (
+    rest as {
+      marqueeSelection?: RendererInteractionState["marqueeSelection"];
+    }
+  ).marqueeSelection;
   return rest;
 };
 
 export const createGraphEditor = (options: CreateGraphEditorOptions): GraphEditor => {
   const interaction = options.interaction ?? DEFAULT_INTERACTION;
-  const theme = resolveRendererTheme(options.theme);
+  const theme = resolveRendererTheme(
+    options.theme,
+    options.themeMode,
+    options.themeScale
+  );
   const interactionOptions = resolveInteractionOptions(options.interactionOptions);
+  const virtualization = resolveVirtualizationOptions(options.virtualization);
+  const debug = resolveDebugOptions(options.debug);
+  const accessibility = resolveRendererAccessibilityOptions(options.accessibility);
   let camera: CameraState = createCameraState(options.camera);
   let interactionState: RendererInteractionState = {};
   let dragState: DragState | undefined;
+  let previousScene: SkiaRenderPlan["scene"] | undefined;
 
   const emitEvent = (phase: "start" | "move" | "end" | "cancel", position: Vec2, target?: string): void => {
-    interaction.onEvent({
+    const payload = {
       pointerId: "editor",
       phase,
       position,
       timestampMs: Date.now(),
       ...(target !== undefined ? { targetId: target as never } : {})
+    };
+
+    interaction.onEvent(payload);
+
+    const pluginContext = {
+      snapshot: options.engine.getSnapshot(),
+      viewport: options.viewport,
+      camera,
+      theme,
+      ...(Object.keys(interactionState).length > 0 ? { interactionState } : {})
+    };
+
+    (options.plugins ?? []).forEach((plugin) => {
+      try {
+        plugin.onInteractionEvent?.(payload, pluginContext);
+      } catch {
+        // Plugin interaction failures are isolated from editor behavior.
+      }
     });
   };
 
@@ -144,10 +184,16 @@ export const createGraphEditor = (options: CreateGraphEditorOptions): GraphEdito
       plugins: options.plugins ?? [],
       interaction,
       interactionOptions,
+      virtualization,
+      debug,
+      accessibility,
+      frameTimestampMs: Date.now(),
+      ...(previousScene !== undefined ? { previousScene } : {}),
       ...(Object.keys(interactionState).length > 0 ? { interactionState } : {})
     });
     const nodeLayer = scene.layers.find((layer) => layer.kind === "node");
     const edgeLayer = scene.layers.find((layer) => layer.kind === "edge");
+    previousScene = scene;
 
     return {
       scene,

@@ -53,7 +53,21 @@ const createEditor = () => {
       engine,
       interaction: { onEvent: vi.fn() },
       viewport: { width: 1200, height: 800 },
-      camera: { position: vec2(0, 0), zoom: 1 }
+      camera: { position: vec2(0, 0), zoom: 1 },
+      virtualization: {
+        enabled: true,
+        cullingPadding: 24,
+        suppressOffscreenNodes: true,
+        suppressOffscreenEdges: true,
+        preserveSelectedElements: true,
+        incrementalRedrawEnabled: true,
+        levelOfDetail: {
+          labels: 0.45,
+          ports: 0.7,
+          decorations: 1,
+          edgeSimplification: 0.55
+        }
+      }
     })
   };
 };
@@ -120,5 +134,24 @@ describe("renderer-skia editor controller", () => {
     expect(validPreview?.valid).toBe(true);
     expect(editor.commitConnectionPreview()?.target).toBe(sinkId);
     expect(engine.getSnapshot().edges).toHaveLength(1);
+  });
+
+  it("tracks dirty redraw bounds across rapid mutation replay", () => {
+    const { editor } = createEditor();
+    const firstPlan = editor.getRenderPlan();
+
+    for (let index = 0; index < 25; index += 1) {
+      editor.beginDragAt(vec2(120, 120));
+      editor.dragTo(vec2(120 + index + 1, 120 + index + 1));
+      editor.endDrag();
+    }
+
+    const nextPlan = editor.getRenderPlan();
+
+    expect(firstPlan.scene.diagnostics.redrawBounds).toBeDefined();
+    expect(nextPlan.scene.diagnostics.redrawBounds).toBeDefined();
+    expect(nextPlan.scene.diagnostics.redrawBounds?.max.x).toBeGreaterThan(
+      nextPlan.scene.diagnostics.redrawBounds?.min.x ?? 0
+    );
   });
 });

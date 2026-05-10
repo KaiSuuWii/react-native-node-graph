@@ -151,6 +151,7 @@ export interface NodeTypeDefinition {
   readonly validateProperties?: (
     properties: Readonly<Record<string, unknown>>
   ) => readonly string[] | void;
+  readonly execution?: NodeExecutionDefinition;
 }
 
 export interface EdgeValidationContext {
@@ -166,6 +167,125 @@ export interface CorePluginHooks {
   readonly afterNodeCreate?: (node: Node, engine: CoreEngine) => void;
 }
 
+export interface ExecutionPolicy {
+  readonly graph: "dag";
+  readonly ordering: "pull";
+  readonly asyncNodes: "await";
+  readonly batching: "topological-levels";
+  readonly caching: "node-output";
+}
+
+export type ExecutionInputValue =
+  | null
+  | boolean
+  | number
+  | string
+  | Readonly<Record<string, unknown>>
+  | readonly (null | boolean | number | string | Readonly<Record<string, unknown>>)[];
+export type ExecutionInputs = Readonly<Record<string, ExecutionInputValue>>;
+export type ExecutionOutputs = Readonly<Record<string, unknown>>;
+
+export interface ExecutionCacheEntry {
+  readonly nodeId: NodeId;
+  readonly signature: string;
+  readonly outputs: ExecutionOutputs;
+  readonly upstreamNodeIds: readonly NodeId[];
+  readonly updatedAtExecutionId: string;
+}
+
+export interface ExecutionContext {
+  readonly executionId: string;
+  readonly node: Node;
+  readonly graph: GraphSnapshot;
+  readonly batchIndex: number;
+  readonly orderIndex: number;
+  readonly inputs: ExecutionInputs;
+  readonly properties: Readonly<Record<string, unknown>>;
+  readonly signal: AbortSignal;
+  readonly engine: CoreEngine;
+  readonly policy: ExecutionPolicy;
+  readonly getCachedOutput: (nodeId: NodeId) => ExecutionCacheEntry | undefined;
+}
+
+export interface NodeExecutionDefinition {
+  readonly requiredInputs?: readonly PortId[];
+  readonly execute: (context: ExecutionContext) => ExecutionOutputs | Promise<ExecutionOutputs>;
+}
+
+export interface ExecutionBatch {
+  readonly index: number;
+  readonly nodeIds: readonly NodeId[];
+}
+
+export interface NodeExecutionRecord {
+  readonly nodeId: NodeId;
+  readonly batchIndex: number;
+  readonly orderIndex: number;
+  readonly status: "executed" | "cached";
+  readonly inputs: ExecutionInputs;
+  readonly outputs: ExecutionOutputs;
+}
+
+export interface ExecutionRuntimeError {
+  readonly code: string;
+  readonly message: string;
+  readonly nodeId?: NodeId;
+  readonly edgeId?: EdgeId;
+}
+
+export interface ExecutionCacheStats {
+  readonly hits: number;
+  readonly misses: number;
+  readonly invalidatedNodeIds: readonly NodeId[];
+}
+
+export type ExecutionStatus = "completed" | "failed" | "cancelled";
+
+export interface ExecutionResult {
+  readonly executionId: string;
+  readonly status: ExecutionStatus;
+  readonly policy: ExecutionPolicy;
+  readonly nodeOrder: readonly NodeId[];
+  readonly batches: readonly ExecutionBatch[];
+  readonly nodeResults: Readonly<Record<string, NodeExecutionRecord>>;
+  readonly errors: readonly ExecutionRuntimeError[];
+  readonly cacheStats: ExecutionCacheStats;
+  readonly startedAtIso: string;
+  readonly completedAtIso: string;
+}
+
+export interface ExecuteGraphOptions {
+  readonly targetNodeIds?: readonly NodeId[];
+  readonly signal?: AbortSignal;
+  readonly invalidateNodeIds?: readonly NodeId[];
+}
+
+export interface ExecutionRunHandle {
+  readonly executionId: string;
+  readonly cancel: () => boolean;
+  readonly result: Promise<ExecutionResult>;
+}
+
+export interface GraphPluginContext {
+  readonly engine: CoreEngine;
+  readonly executionPolicy: ExecutionPolicy;
+}
+
+export interface GraphPlugin {
+  readonly name: string;
+  readonly hooks?: CorePluginHooks;
+  readonly initialize?: (context: GraphPluginContext) => void | (() => void);
+  readonly dispose?: (context: GraphPluginContext) => void;
+}
+
+export interface GraphPluginState {
+  readonly name: string;
+  readonly initialized: boolean;
+  readonly hookCount: number;
+  readonly hasDispose: boolean;
+  readonly lastError?: string;
+}
+
 export interface CoreValidationPolicies {
   readonly allowSelfLoops?: boolean;
   readonly allowCycles?: boolean;
@@ -174,7 +294,7 @@ export interface CoreValidationPolicies {
 export interface CreateCoreEngineOptions extends CoreValidationPolicies {
   readonly graph?: GraphInput;
   readonly nodeTypes?: readonly NodeTypeDefinition[];
-  readonly plugins?: readonly CorePluginHooks[];
+  readonly plugins?: readonly GraphPlugin[];
   readonly schemaValidator?: (
     input: NodeInput,
     definition: NodeTypeDefinition
@@ -257,6 +377,17 @@ export interface CoreEventMap {
     readonly selection: SelectionSnapshot;
     readonly graph: GraphSnapshot;
   };
+  readonly executionStarted: {
+    readonly executionId: string;
+    readonly nodeIds: readonly NodeId[];
+    readonly batches: readonly ExecutionBatch[];
+    readonly policy: ExecutionPolicy;
+    readonly graph: GraphSnapshot;
+  };
+  readonly executionCompleted: {
+    readonly result: ExecutionResult;
+    readonly graph: GraphSnapshot;
+  };
 }
 
 export type CoreEventName = keyof CoreEventMap;
@@ -269,6 +400,12 @@ export interface CoreEngineStateSnapshot {
     readonly redoDepth: number;
     readonly transactionDepth: number;
   };
+  readonly execution: {
+    readonly policy: ExecutionPolicy;
+    readonly cacheNodeIds: readonly NodeId[];
+    readonly activeExecutionIds: readonly string[];
+  };
+  readonly plugins: readonly GraphPluginState[];
   readonly nodeIds: readonly NodeId[];
   readonly edgeIds: readonly EdgeId[];
   readonly groupIds: readonly GroupId[];
@@ -287,14 +424,20 @@ export interface CoreEngineStateSnapshot {
 export interface CoreEngine {
   readonly getSnapshot: () => GraphSnapshot;
   readonly getStateSnapshot: () => CoreEngineStateSnapshot;
+  readonly getExecutionPolicy: () => ExecutionPolicy;
+  readonly getExecutionCacheSnapshot: () => readonly ExecutionCacheEntry[];
   readonly registerNodeType: (definition: NodeTypeDefinition) => void;
   readonly unregisterNodeType: (type: string) => boolean;
   readonly getNodeType: (type: string) => NodeTypeDefinition | undefined;
+  readonly registerPlugin: (plugin: GraphPlugin) => () => void;
+  readonly unregisterPlugin: (name: string) => boolean;
+  readonly getPlugins: () => readonly GraphPluginState[];
   readonly on: <K extends CoreEventName>(
     eventName: K,
     listener: CoreEventListener<K>
   ) => () => void;
   readonly validateGraph: (graph?: GraphInput | GraphSnapshot) => ValidationResult;
+  readonly validateExecution: (graph?: GraphInput | GraphSnapshot) => ValidationResult;
   readonly loadGraph: (graph: GraphInput) => GraphSnapshot;
   readonly importGraph: (
     document: GraphDocument,
@@ -312,6 +455,8 @@ export interface CoreEngine {
   readonly selectEdge: (edgeId: EdgeId, mode?: SelectionChangeMode) => SelectionSnapshot;
   readonly selectGroup: (groupId: GroupId, mode?: SelectionChangeMode) => SelectionSnapshot;
   readonly clearSelection: () => SelectionSnapshot;
+  readonly execute: (options?: ExecuteGraphOptions) => ExecutionRunHandle;
+  readonly invalidateExecutionCache: (nodeIds?: readonly NodeId[]) => readonly NodeId[];
   readonly beginTransaction: (label?: string) => void;
   readonly endTransaction: () => boolean;
   readonly undo: () => boolean;
