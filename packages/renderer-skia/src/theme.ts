@@ -43,7 +43,10 @@ export const DEFAULT_INTERACTION_OPTIONS: RendererInteractionOptions = {
   panEnabled: true,
   zoomEnabled: true,
   minZoom: 0.25,
-  maxZoom: 2.5
+  maxZoom: 2.5,
+  hitSlop: 8,
+  edgeHitWidth: 12,
+  longPressMarqueeEnabled: true
 };
 
 export const resolveRendererTheme = (

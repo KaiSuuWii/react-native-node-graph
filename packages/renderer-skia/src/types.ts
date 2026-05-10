@@ -1,10 +1,16 @@
 import type {
+  CoreEngine,
+  Edge,
   GraphEdgeSnapshot,
   GraphInteractionContract,
   GraphSnapshot,
-  GraphNodeSnapshot
+  GraphNodeSnapshot,
+  GroupId,
+  PortId,
+  SelectionChangeMode,
+  SelectionSnapshot
 } from "@react-native-node-graph/core";
-import type { EdgeId, NodeId, Vec2 } from "@react-native-node-graph/shared";
+import type { Bounds, EdgeId, NodeId, Vec2 } from "@react-native-node-graph/shared";
 
 export interface CameraVelocity {
   readonly x: number;
@@ -76,6 +82,30 @@ export interface RendererInteractionOptions {
   readonly zoomEnabled: boolean;
   readonly minZoom: number;
   readonly maxZoom: number;
+  readonly hitSlop: number;
+  readonly edgeHitWidth: number;
+  readonly longPressMarqueeEnabled: boolean;
+}
+
+export interface ConnectionPreviewState {
+  readonly sourceNodeId: NodeId;
+  readonly sourcePortId: PortId;
+  readonly sourcePosition: Vec2;
+  readonly currentPosition: Vec2;
+  readonly targetNodeId?: NodeId;
+  readonly targetPortId?: PortId;
+  readonly valid: boolean;
+}
+
+export interface MarqueeSelectionState {
+  readonly start: Vec2;
+  readonly current: Vec2;
+  readonly mode: SelectionChangeMode;
+}
+
+export interface RendererInteractionState {
+  readonly connectionPreview?: ConnectionPreviewState;
+  readonly marqueeSelection?: MarqueeSelectionState;
 }
 
 export interface NodeGraphRendererProps {
@@ -86,6 +116,7 @@ export interface NodeGraphRendererProps {
   readonly plugins?: readonly RendererPluginPlaceholder[];
   readonly interactionOptions?: Partial<RendererInteractionOptions>;
   readonly camera?: Partial<CameraState>;
+  readonly interactionState?: RendererInteractionState;
 }
 
 export type SceneLayerKind =
@@ -95,6 +126,7 @@ export type SceneLayerKind =
   | "edge"
   | "node"
   | "selection"
+  | "interaction"
   | "debug";
 
 export interface SceneBackgroundLayer {
@@ -195,6 +227,27 @@ export interface SceneSelectionLayer {
   readonly items: readonly SelectionHighlight[];
 }
 
+export interface RenderConnectionPreview {
+  readonly sourceNodeId: NodeId;
+  readonly sourcePortId: PortId;
+  readonly sourcePosition: Vec2;
+  readonly targetPosition: Vec2;
+  readonly targetNodeId?: NodeId;
+  readonly targetPortId?: PortId;
+  readonly valid: boolean;
+}
+
+export interface RenderMarqueeSelection {
+  readonly bounds: Bounds;
+  readonly mode: SelectionChangeMode;
+}
+
+export interface SceneInteractionLayer {
+  readonly kind: "interaction";
+  readonly connectionPreview?: RenderConnectionPreview;
+  readonly marqueeSelection?: RenderMarqueeSelection;
+}
+
 export interface SceneDebugLayer {
   readonly kind: "debug";
   readonly enabled: boolean;
@@ -209,6 +262,7 @@ export type SceneLayer =
   | SceneEdgeLayer
   | SceneNodeLayer
   | SceneSelectionLayer
+  | SceneInteractionLayer
   | SceneDebugLayer;
 
 export interface SkiaRenderScene {
@@ -237,6 +291,7 @@ export interface BuildSceneOptions {
   readonly plugins: readonly RendererPluginPlaceholder[];
   readonly interaction: GraphInteractionContract;
   readonly interactionOptions: RendererInteractionOptions;
+  readonly interactionState?: RendererInteractionState;
 }
 
 export interface EdgeRenderState {
@@ -249,6 +304,110 @@ export interface StaticGraphExampleScreen {
   readonly title: string;
   readonly snapshot: GraphSnapshot;
   readonly rendererProps: NodeGraphRendererProps;
+}
+
+export type SpatialIndexEntryKind = "port" | "node" | "edge" | "group";
+
+export interface PortSpatialIndexEntry {
+  readonly kind: "port";
+  readonly id: string;
+  readonly bounds: Bounds;
+  readonly nodeId: NodeId;
+  readonly portId: PortId;
+}
+
+export interface NodeSpatialIndexEntry {
+  readonly kind: "node";
+  readonly id: NodeId;
+  readonly bounds: Bounds;
+}
+
+export interface EdgeSpatialIndexEntry {
+  readonly kind: "edge";
+  readonly id: EdgeId;
+  readonly bounds: Bounds;
+}
+
+export interface GroupSpatialIndexEntry {
+  readonly kind: "group";
+  readonly id: GroupId;
+  readonly bounds: Bounds;
+}
+
+export type SpatialIndexEntry =
+  | PortSpatialIndexEntry
+  | NodeSpatialIndexEntry
+  | EdgeSpatialIndexEntry
+  | GroupSpatialIndexEntry;
+
+export interface SpatialIndex {
+  readonly cellSize: number;
+  readonly getEntries: () => readonly SpatialIndexEntry[];
+  readonly insert: (entry: SpatialIndexEntry) => void;
+  readonly update: (entry: SpatialIndexEntry) => void;
+  readonly remove: (kind: SpatialIndexEntryKind, id: string) => boolean;
+  readonly queryPoint: (point: Vec2) => readonly SpatialIndexEntry[];
+  readonly queryBounds: (bounds: Bounds) => readonly SpatialIndexEntry[];
+}
+
+export type HitTestTarget =
+  | {
+      readonly kind: "port";
+      readonly nodeId: NodeId;
+      readonly portId: PortId;
+    }
+  | {
+      readonly kind: "node";
+      readonly nodeId: NodeId;
+    }
+  | {
+      readonly kind: "edge";
+      readonly edgeId: EdgeId;
+    }
+  | {
+      readonly kind: "group";
+      readonly groupId: GroupId;
+    }
+  | {
+      readonly kind: "canvas";
+    };
+
+export interface HitTestResult {
+  readonly target: HitTestTarget;
+  readonly point: Vec2;
+  readonly distance: number;
+}
+
+export interface CreateGraphEditorOptions {
+  readonly engine: CoreEngine;
+  readonly viewport: RendererViewport;
+  readonly interaction?: GraphInteractionContract;
+  readonly theme?: Partial<RendererTheme>;
+  readonly plugins?: readonly RendererPluginPlaceholder[];
+  readonly interactionOptions?: Partial<RendererInteractionOptions>;
+  readonly camera?: Partial<CameraState>;
+}
+
+export interface GraphEditor {
+  readonly getSnapshot: () => GraphSnapshot;
+  readonly getCamera: () => CameraState;
+  readonly getRenderPlan: () => SkiaRenderPlan;
+  readonly getSpatialIndex: () => SpatialIndex;
+  readonly getInteractionState: () => RendererInteractionState;
+  readonly tapAt: (screenPoint: Vec2, mode?: SelectionChangeMode) => HitTestResult;
+  readonly doubleTapAt: (screenPoint: Vec2) => HitTestResult;
+  readonly longPressAt: (screenPoint: Vec2, mode?: SelectionChangeMode) => HitTestResult;
+  readonly beginDragAt: (screenPoint: Vec2, mode?: SelectionChangeMode) => HitTestResult;
+  readonly dragTo: (screenPoint: Vec2) => GraphSnapshot;
+  readonly endDrag: () => GraphSnapshot;
+  readonly pinchAt: (screenPoint: Vec2, zoomFactor: number) => CameraState;
+  readonly beginMarquee: (screenPoint: Vec2, mode?: SelectionChangeMode) => void;
+  readonly updateMarquee: (screenPoint: Vec2) => SelectionSnapshot;
+  readonly endMarquee: () => SelectionSnapshot;
+  readonly startConnectionPreview: (screenPoint: Vec2) => HitTestResult;
+  readonly updateConnectionPreview: (screenPoint: Vec2) => ConnectionPreviewState | undefined;
+  readonly commitConnectionPreview: () => Edge | undefined;
+  readonly cancelConnectionPreview: () => void;
 }
 
 export type RendererNodeSnapshot = GraphNodeSnapshot;
