@@ -1,0 +1,29 @@
+{
+  "files": [],
+  "references": [
+    {
+      "path": "./packages/shared/tsconfig.build.json"
+    },
+    {
+      "path": "./packages/core/tsconfig.build.json"
+    },
+    {
+      "path": "./packages/renderer-skia/tsconfig.build.json"
+    },
+    {
+      "path": "./packages/renderer-svg/tsconfig.build.json"
+    },
+    {
+      "path": "./packages/renderer-web/tsconfig.build.json"
+    },
+    {
+      "path": "./packages/examples/tsconfig.build.json"
+    },
+    {
+      "path": "./packages/plugins/tsconfig.build.json"
+    },
+    {
+      "path": "./packages/docs/tsconfig.build.json"
+    }
+  ]
+}

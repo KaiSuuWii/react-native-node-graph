@@ -1,0 +1,29 @@
+{
+  "files": [],
+  "references": [
+    {
+      "path": "./packages/shared"
+    },
+    {
+      "path": "./packages/core"
+    },
+    {
+      "path": "./packages/renderer-skia"
+    },
+    {
+      "path": "./packages/renderer-svg"
+    },
+    {
+      "path": "./packages/renderer-web"
+    },
+    {
+      "path": "./packages/examples"
+    },
+    {
+      "path": "./packages/plugins"
+    },
+    {
+      "path": "./packages/docs"
+    }
+  ]
+}

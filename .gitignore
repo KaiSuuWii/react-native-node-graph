@@ -1,0 +1,63 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+*.tsbuildinfo
+
+# Tests & coverage
+coverage/
+.vitest/
+
+# Logs & debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+
+# Caches
+.cache/
+.eslintcache
+*.pem
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors (trim if your team commits shared IDE config)
+.idea/
+
+# Local planning / sprint docs (not shipped with the library)
+_planning/
+
+# React Native / Metro (libraries + future example apps)
+.expo/
+dist-app/
+*.orig.*
+*.p12
+*.key
+*.mobileprovision
+*.ipa
+*.apk
+*.aab
+
+# Android
+**/android/**/build/
+**/android/.gradle/
+**/android/local.properties
+**/android/*.iml
+**/android/.cxx/
+
+# iOS
+**/ios/Pods/
+**/ios/**/*.xcworkspace/xcuserdata/
+**/ios/**/*.xcodeproj/xcuserdata/
+**/ios/**/*.xcodeproj/project.xcworkspace/xcuserdata/
+**/ios/.xcode.env.local
+**/ios/build/

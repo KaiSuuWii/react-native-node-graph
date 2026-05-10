@@ -1,0 +1,51 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "composite": true,
+    "incremental": true,
+    "newLine": "lf",
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "rootDir": ".",
+    "baseUrl": ".",
+    "paths": {
+      "@react-native-node-graph/shared": [
+        "packages/shared/src/index.ts"
+      ],
+      "@react-native-node-graph/core": [
+        "packages/core/src/index.ts"
+      ],
+      "@react-native-node-graph/renderer-skia": [
+        "packages/renderer-skia/src/index.ts"
+      ],
+      "@react-native-node-graph/renderer-svg": [
+        "packages/renderer-svg/src/index.ts"
+      ],
+      "@react-native-node-graph/renderer-web": [
+        "packages/renderer-web/src/index.ts"
+      ],
+      "@react-native-node-graph/examples": [
+        "packages/examples/src/index.ts"
+      ],
+      "@react-native-node-graph/plugins": [
+        "packages/plugins/src/index.ts"
+      ],
+      "@react-native-node-graph/docs": [
+        "packages/docs/src/index.ts"
+      ]
+    }
+  }
+}
