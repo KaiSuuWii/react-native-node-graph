@@ -34,7 +34,7 @@ Thumbs.db
 .idea/
 
 # Local planning / sprint docs (not shipped with the library)
-_planning/
+# _planning/
 
 # React Native / Metro (libraries + future example apps)
 .expo/
