@@ -1,4 +1,4 @@
-import { runRendererBenchmarkSuite } from "@react-native-node-graph/renderer-skia";
+import { runRendererBenchmarkSuite } from "@kaiisuuwii/renderer-skia";
 import { describe, expect, it } from "vitest";
 
 describe("renderer-skia benchmark harness", () => {

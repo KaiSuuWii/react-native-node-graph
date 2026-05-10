@@ -1,4 +1,4 @@
-import type { Bounds, Vec2 } from "@react-native-node-graph/shared";
+import type { Bounds, Vec2 } from "@kaiisuuwii/shared";
 
 import type { SpatialIndex, SpatialIndexEntry, SpatialIndexEntryKind } from "./types.js";
 

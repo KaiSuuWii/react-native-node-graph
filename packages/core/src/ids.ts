@@ -1,4 +1,4 @@
-import type { EdgeId, NodeId } from "@react-native-node-graph/shared";
+import type { EdgeId, NodeId } from "@kaiisuuwii/shared";
 
 import type { GroupId, PortId, PortInput } from "./types.js";
 

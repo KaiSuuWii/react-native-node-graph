@@ -4,9 +4,9 @@ import type {
   GraphInput,
   GraphSnapshot,
   NodeInput
-} from "@react-native-node-graph/core";
-import { createGraphSnapshot } from "@react-native-node-graph/core";
-import { vec2 } from "@react-native-node-graph/shared";
+} from "@kaiisuuwii/core";
+import { createGraphSnapshot } from "@kaiisuuwii/core";
+import { vec2 } from "@kaiisuuwii/shared";
 
 type PipelineNodeInput = NodeInput & {
   readonly id: `node_${string}`;

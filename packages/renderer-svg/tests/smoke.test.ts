@@ -1,4 +1,4 @@
-import { rendererSvgEntryPoint } from "@react-native-node-graph/renderer-svg";
+import { rendererSvgEntryPoint } from "@kaiisuuwii/renderer-svg";
 import { describe, expect, it } from "vitest";
 
 describe("renderer-svg public api", () => {

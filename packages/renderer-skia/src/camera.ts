@@ -1,4 +1,4 @@
-import { addVec2, scaleVec2, subtractVec2, vec2, type Vec2 } from "@react-native-node-graph/shared";
+import { addVec2, scaleVec2, subtractVec2, vec2, type Vec2 } from "@kaiisuuwii/shared";
 
 import type { CameraState, RendererInteractionOptions } from "./types.js";
 

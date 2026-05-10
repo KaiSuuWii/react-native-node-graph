@@ -1,4 +1,4 @@
-import { rendererWebEntryPoint } from "@react-native-node-graph/renderer-web";
+import { rendererWebEntryPoint } from "@kaiisuuwii/renderer-web";
 import { describe, expect, it } from "vitest";
 
 describe("renderer-web public api", () => {

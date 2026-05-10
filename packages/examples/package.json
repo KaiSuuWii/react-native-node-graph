@@ -1,5 +1,5 @@
 {
-  "name": "@react-native-node-graph/examples",
+  "name": "@kaiisuuwii/examples",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -37,9 +37,9 @@
     "test": "vitest run packages/examples/tests"
   },
   "dependencies": {
-    "@react-native-node-graph/core": "0.1.0",
-    "@react-native-node-graph/plugins": "0.1.0",
-    "@react-native-node-graph/renderer-skia": "0.1.0",
-    "@react-native-node-graph/shared": "0.1.0"
+    "@kaiisuuwii/core": "0.1.0",
+    "@kaiisuuwii/plugins": "0.1.0",
+    "@kaiisuuwii/renderer-skia": "0.1.0",
+    "@kaiisuuwii/shared": "0.1.0"
   }
 }

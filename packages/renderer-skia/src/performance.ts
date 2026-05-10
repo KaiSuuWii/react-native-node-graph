@@ -1,5 +1,5 @@
-import type { GraphNodeSnapshot } from "@react-native-node-graph/core";
-import { vec2, type Bounds } from "@react-native-node-graph/shared";
+import type { GraphNodeSnapshot } from "@kaiisuuwii/core";
+import { vec2, type Bounds } from "@kaiisuuwii/shared";
 
 import type {
   CameraState,

@@ -1,13 +1,13 @@
-import { createCoreEngine } from "@react-native-node-graph/core";
-import { createSkiaRenderPlan } from "@react-native-node-graph/renderer-skia";
+import { createCoreEngine } from "@kaiisuuwii/core";
+import { createSkiaRenderPlan } from "@kaiisuuwii/renderer-skia";
 import {
   createAnnotationNodePlugin,
   createAnnotationRendererPlugin,
   createExecutableNodePlugin,
   createExecutableRendererPlugin,
   pluginRegistry
-} from "@react-native-node-graph/plugins";
-import { createGraphId, vec2 } from "@react-native-node-graph/shared";
+} from "@kaiisuuwii/plugins";
+import { createGraphId, vec2 } from "@kaiisuuwii/shared";
 import { describe, expect, it } from "vitest";
 
 describe("plugins public api", () => {

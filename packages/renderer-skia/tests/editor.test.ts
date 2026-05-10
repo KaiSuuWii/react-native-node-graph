@@ -1,6 +1,6 @@
-import { createCoreEngine } from "@react-native-node-graph/core";
-import { createGraphEditor } from "@react-native-node-graph/renderer-skia";
-import { createGraphId, createNodeId, vec2 } from "@react-native-node-graph/shared";
+import { createCoreEngine } from "@kaiisuuwii/core";
+import { createGraphEditor } from "@kaiisuuwii/renderer-skia";
+import { createGraphId, createNodeId, vec2 } from "@kaiisuuwii/shared";
 import { describe, expect, it, vi } from "vitest";
 
 const sourceId = createNodeId("editor-source");

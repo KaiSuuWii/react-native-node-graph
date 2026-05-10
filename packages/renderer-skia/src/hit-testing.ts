@@ -1,4 +1,4 @@
-import { vec2, type Bounds, type Vec2 } from "@react-native-node-graph/shared";
+import { vec2, type Bounds, type Vec2 } from "@kaiisuuwii/shared";
 
 import { getCurveBounds } from "./performance.js";
 import { createSpatialIndex } from "./spatial-index.js";

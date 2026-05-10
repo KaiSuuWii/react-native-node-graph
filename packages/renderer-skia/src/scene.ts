@@ -1,5 +1,5 @@
-import type { GraphEdgeSnapshot, GraphNodeSnapshot, GraphSnapshot } from "@react-native-node-graph/core";
-import { addVec2, vec2, type Bounds } from "@react-native-node-graph/shared";
+import type { GraphEdgeSnapshot, GraphNodeSnapshot, GraphSnapshot } from "@kaiisuuwii/core";
+import { addVec2, vec2, type Bounds } from "@kaiisuuwii/shared";
 
 import { createEdgeLayout, createGroupLayout, createNodeLayout } from "./layout.js";
 import {

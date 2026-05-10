@@ -3,7 +3,7 @@ import {
   MEDIUM_GRAPH_EXAMPLE_DOCUMENT,
   PLUGIN_EXAMPLE_DOCUMENT,
   createExampleAppModel
-} from "@react-native-node-graph/examples";
+} from "@kaiisuuwii/examples";
 import { describe, expect, it } from "vitest";
 
 describe("examples integration flows", () => {

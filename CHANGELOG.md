@@ -135,7 +135,7 @@ The following commands pass from the repository root:
 
 ## Summary
 
-This sprint turned `@react-native-node-graph/core` from a snapshot stub into a usable, renderer-agnostic graph editing engine with deterministic CRUD, normalized storage, node registries, validation, events, and disposal.
+This sprint turned `@kaiisuuwii/core` from a snapshot stub into a usable, renderer-agnostic graph editing engine with deterministic CRUD, normalized storage, node registries, validation, events, and disposal.
 
 ## Core graph model and factories
 
@@ -227,7 +227,7 @@ The following commands pass from the repository root:
 
 ## Summary
 
-This sprint made `@react-native-node-graph/core` viable for editing workflows by adding validation reporting, immutable selection state, undo/redo history, transaction batching, and versioned graph serialization.
+This sprint made `@kaiisuuwii/core` viable for editing workflows by adding validation reporting, immutable selection state, undo/redo history, transaction batching, and versioned graph serialization.
 
 ## Core API and snapshot model
 
@@ -301,7 +301,7 @@ This sprint made `@react-native-node-graph/core` viable for editing workflows by
   - versioned serialization round trips
   - migration registry behavior
   - deterministic command replay
-- Fixed `packages/core/package.json` so the workspace-local `npm run test --workspace @react-native-node-graph/core` command resolves tests from the package directory.
+- Fixed `packages/core/package.json` so the workspace-local `npm run test --workspace @kaiisuuwii/core` command resolves tests from the package directory.
 
 ## Verified checkpoints
 
@@ -313,13 +313,13 @@ The following commands pass from the repository root:
 
 The following package-local command also passes:
 
-- `npm run test --workspace @react-native-node-graph/core`
+- `npm run test --workspace @kaiisuuwii/core`
 
 # Sprint 04 Changes Log
 
 ## Summary
 
-This sprint turned `@react-native-node-graph/renderer-skia` into a real renderer foundation package with camera math, scene composition, node and edge layout helpers, theme and interaction inputs, and a static example graph path that stays fully snapshot-driven.
+This sprint turned `@kaiisuuwii/renderer-skia` into a real renderer foundation package with camera math, scene composition, node and edge layout helpers, theme and interaction inputs, and a static example graph path that stays fully snapshot-driven.
 
 ## Renderer foundation and public API
 
@@ -367,7 +367,7 @@ This sprint turned `@react-native-node-graph/renderer-skia` into a real renderer
 
 ## Example graph and fixtures
 
-- Expanded `@react-native-node-graph/examples` to depend on the renderer package.
+- Expanded `@kaiisuuwii/examples` to depend on the renderer package.
 - Added static example assets in:
   - `packages/examples/src/fixtures.ts`
   - `packages/examples/src/screen.ts`
@@ -522,7 +522,7 @@ The following validations pass from the repository root:
 
 ## Verification note
 
-- `npm run build --workspace @react-native-node-graph/core` and `npm run build --workspace @react-native-node-graph/renderer-skia` remain blocked in this Codex sandbox because writes to package `dist` artifacts and `.tsbuildinfo` files are denied with `EPERM`.
+- `npm run build --workspace @kaiisuuwii/core` and `npm run build --workspace @kaiisuuwii/renderer-skia` remain blocked in this Codex sandbox because writes to package `dist` artifacts and `.tsbuildinfo` files are denied with `EPERM`.
 
 # Sprint 06 Changes Log
 
@@ -611,7 +611,7 @@ The following validations pass from the repository root:
 
 ## Summary
 
-This sprint added a deterministic MVP execution engine to `@react-native-node-graph/core`, replaced placeholder plugin seams with formal core and renderer plugin contracts, and shipped sample plugins plus example coverage proving executable graphs and renderer extensions work without patching the host packages.
+This sprint added a deterministic MVP execution engine to `@kaiisuuwii/core`, replaced placeholder plugin seams with formal core and renderer plugin contracts, and shipped sample plugins plus example coverage proving executable graphs and renderer extensions work without patching the host packages.
 
 ## MVP execution policy
 
@@ -755,7 +755,7 @@ This sprint finished the MVP release layer by adding renderer theme switching an
 
 ## Theme system and accessibility
 
-- Extended `@react-native-node-graph/renderer-skia` with a real theme surface in:
+- Extended `@kaiisuuwii/renderer-skia` with a real theme surface in:
   - `packages/renderer-skia/src/types.ts`
   - `packages/renderer-skia/src/theme.ts`
   - `packages/renderer-skia/src/layout.ts`

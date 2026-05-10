@@ -3,13 +3,13 @@ import type {
   GraphPlugin,
   GraphPluginContext,
   NodeTypeDefinition
-} from "@react-native-node-graph/core";
+} from "@kaiisuuwii/core";
 import type {
   RenderEdgeLayout,
   RenderNodeLayout,
   RendererPlugin
-} from "@react-native-node-graph/renderer-skia";
-import { vec2 } from "@react-native-node-graph/shared";
+} from "@kaiisuuwii/renderer-skia";
+import { vec2 } from "@kaiisuuwii/shared";
 
 const readNumericInput = (
   inputs: ExecutionInputs,

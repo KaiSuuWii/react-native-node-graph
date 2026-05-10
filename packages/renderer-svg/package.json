@@ -1,5 +1,5 @@
 {
-  "name": "@react-native-node-graph/renderer-svg",
+  "name": "@kaiisuuwii/renderer-svg",
   "version": "0.1.0",
   "private": false,
   "type": "module",
@@ -41,7 +41,7 @@
     "test": "vitest run packages/renderer-svg/tests"
   },
   "dependencies": {
-    "@react-native-node-graph/core": "0.1.0",
-    "@react-native-node-graph/shared": "0.1.0"
+    "@kaiisuuwii/core": "0.1.0",
+    "@kaiisuuwii/shared": "0.1.0"
   }
 }

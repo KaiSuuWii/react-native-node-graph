@@ -1,7 +1,7 @@
 import { performance } from "node:perf_hooks";
 
-import { createCoreEngine, createGraphSnapshot, type GraphSnapshot } from "@react-native-node-graph/core";
-import { createEdgeId, createGraphId, createNodeId, vec2 } from "@react-native-node-graph/shared";
+import { createCoreEngine, createGraphSnapshot, type GraphSnapshot } from "@kaiisuuwii/core";
+import { createEdgeId, createGraphId, createNodeId, vec2 } from "@kaiisuuwii/shared";
 
 import { createSkiaRenderPlan } from "./index.js";
 import type { RendererViewport } from "./types.js";

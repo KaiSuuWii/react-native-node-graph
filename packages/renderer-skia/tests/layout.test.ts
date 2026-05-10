@@ -1,11 +1,11 @@
-import { createGraphSnapshot } from "@react-native-node-graph/core";
+import { createGraphSnapshot } from "@kaiisuuwii/core";
 import {
   DEFAULT_RENDERER_THEME,
   createEdgeLayout,
   createNodeLayout,
   getPortAnchor
-} from "@react-native-node-graph/renderer-skia";
-import { createEdgeId, createGraphId, createNodeId, vec2 } from "@react-native-node-graph/shared";
+} from "@kaiisuuwii/renderer-skia";
+import { createEdgeId, createGraphId, createNodeId, vec2 } from "@kaiisuuwii/shared";
 import { describe, expect, it } from "vitest";
 
 const leftNodeId = createNodeId("left");

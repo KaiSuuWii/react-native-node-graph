@@ -1,5 +1,5 @@
 {
-  "name": "@react-native-node-graph/core",
+  "name": "@kaiisuuwii/core",
   "version": "0.1.0",
   "private": false,
   "type": "module",
@@ -41,6 +41,6 @@
     "test": "vitest run tests"
   },
   "dependencies": {
-    "@react-native-node-graph/shared": "0.1.0"
+    "@kaiisuuwii/shared": "0.1.0"
   }
 }

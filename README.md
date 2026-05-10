@@ -12,14 +12,14 @@ Renderer-agnostic graph toolkit for React Native-oriented node editors, with a d
 
 ## Packages
 
-- `@react-native-node-graph/shared`: ID helpers, geometry primitives, and shared graph metadata contracts.
-- `@react-native-node-graph/core`: Graph CRUD, validation, history, execution, plugins, and serialization.
-- `@react-native-node-graph/renderer-skia`: Scene planning, camera math, theme switching, accessibility descriptors, diagnostics, and editor interaction helpers.
-- `@react-native-node-graph/renderer-svg`: SVG renderer workspace placeholder.
-- `@react-native-node-graph/renderer-web`: Web renderer workspace placeholder.
-- `@react-native-node-graph/plugins`: Sample executable-node and annotation plugin implementations.
-- `@react-native-node-graph/examples`: Example fixtures and an example app model with theme, validation, and import/export toggles.
-- `@react-native-node-graph/docs`: Architecture and release documentation with executable API examples.
+- `@kaiisuuwii/shared`: ID helpers, geometry primitives, and shared graph metadata contracts.
+- `@kaiisuuwii/core`: Graph CRUD, validation, history, execution, plugins, and serialization.
+- `@kaiisuuwii/renderer-skia`: Scene planning, camera math, theme switching, accessibility descriptors, diagnostics, and editor interaction helpers.
+- `@kaiisuuwii/renderer-svg`: SVG renderer workspace placeholder.
+- `@kaiisuuwii/renderer-web`: Web renderer workspace placeholder.
+- `@kaiisuuwii/plugins`: Sample executable-node and annotation plugin implementations.
+- `@kaiisuuwii/examples`: Example fixtures and an example app model with theme, validation, and import/export toggles.
+- `@kaiisuuwii/docs`: Architecture and release documentation with executable API examples.
 
 ## Sprint 08 Highlights
 
@@ -40,6 +40,6 @@ For GitHub Packages, the official npm-registry guidance also requires:
 - Either a scope-mapped `.npmrc` or `publishConfig.registry` entry.
 - A scope that matches the publishing GitHub user or organization.
 
-This repository already includes the repository metadata. If you publish to GitHub Packages instead of npmjs, confirm that the `@react-native-node-graph/*` scope matches the target GitHub namespace before publishing.
+This repository already includes the repository metadata. If you publish to GitHub Packages instead of npmjs, confirm that the `@kaiisuuwii/*` scope matches the target GitHub namespace before publishing.
 
 See `REPOSITORY_CONVENTIONS.md` for package boundaries and layout rules.

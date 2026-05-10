@@ -4,7 +4,7 @@ import {
   type GraphId,
   type GraphMetadata,
   type NodeId
-} from "@react-native-node-graph/shared";
+} from "@kaiisuuwii/shared";
 
 import { cloneMetadata } from "./model.js";
 import type {

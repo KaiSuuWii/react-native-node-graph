@@ -1,5 +1,5 @@
-import { addVec2, boundsFromPoints, vec2, type Bounds, type Vec2 } from "@react-native-node-graph/shared";
-import type { GraphEdgeSnapshot, GraphNodeSnapshot, GraphSnapshot, Port } from "@react-native-node-graph/core";
+import { addVec2, boundsFromPoints, vec2, type Bounds, type Vec2 } from "@kaiisuuwii/shared";
+import type { GraphEdgeSnapshot, GraphNodeSnapshot, GraphSnapshot, Port } from "@kaiisuuwii/core";
 
 import type {
   CubicBezierCurve,

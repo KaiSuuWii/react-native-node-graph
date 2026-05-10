@@ -1,11 +1,11 @@
-import { createGraphSnapshot } from "@react-native-node-graph/core";
+import { createGraphSnapshot } from "@kaiisuuwii/core";
 import {
   buildSkiaRenderScene,
   createSkiaRenderPlan,
   DEFAULT_RENDERER_THEME,
   type RendererPlugin
-} from "@react-native-node-graph/renderer-skia";
-import { createEdgeId, createGraphId, createNodeId, vec2 } from "@react-native-node-graph/shared";
+} from "@kaiisuuwii/renderer-skia";
+import { createEdgeId, createGraphId, createNodeId, vec2 } from "@kaiisuuwii/shared";
 import { describe, expect, it, vi } from "vitest";
 
 const nodeAId = createNodeId("a");

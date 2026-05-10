@@ -7,7 +7,7 @@ import {
   scaleVec2,
   subtractVec2,
   vec2
-} from "@react-native-node-graph/shared";
+} from "@kaiisuuwii/shared";
 import { describe, expect, it } from "vitest";
 
 describe("shared ids", () => {

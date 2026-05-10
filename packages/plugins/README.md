@@ -1,3 +1,3 @@
-# @react-native-node-graph/plugins
+# @kaiisuuwii/plugins
 
 Sample core and renderer plugins demonstrating executable nodes, annotations, and overlay decoration patterns.

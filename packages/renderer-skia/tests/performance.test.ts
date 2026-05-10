@@ -2,8 +2,8 @@ import {
   DEFAULT_VIRTUALIZATION_OPTIONS,
   getViewportBounds,
   resolveNodeLevelOfDetail
-} from "@react-native-node-graph/renderer-skia";
-import { vec2 } from "@react-native-node-graph/shared";
+} from "@kaiisuuwii/renderer-skia";
+import { vec2 } from "@kaiisuuwii/shared";
 import { describe, expect, it } from "vitest";
 
 describe("renderer-skia performance helpers", () => {

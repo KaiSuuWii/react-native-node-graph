@@ -6,7 +6,7 @@ import {
   type GraphPlugin,
   type GraphSnapshot,
   type ValidationResult
-} from "@react-native-node-graph/core";
+} from "@kaiisuuwii/core";
 import {
   createRendererThemeController,
   createSkiaRenderPlan,
@@ -14,14 +14,14 @@ import {
   type RendererThemeMode,
   type RendererThemeScale,
   type SkiaRenderPlan
-} from "@react-native-node-graph/renderer-skia";
-import { vec2 } from "@react-native-node-graph/shared";
+} from "@kaiisuuwii/renderer-skia";
+import { vec2 } from "@kaiisuuwii/shared";
 import {
   createAnnotationNodePlugin,
   createAnnotationRendererPlugin,
   createExecutableNodePlugin,
   createExecutableRendererPlugin
-} from "@react-native-node-graph/plugins";
+} from "@kaiisuuwii/plugins";
 
 import {
   CUSTOM_NODE_EXAMPLE_DOCUMENT,

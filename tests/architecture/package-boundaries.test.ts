@@ -7,6 +7,7 @@ type PackageManifest = {
   private?: boolean;
   publishConfig?: {
     access?: string;
+    registry?: string;
   };
   repository?: {
     url?: string;
@@ -29,12 +30,12 @@ describe("package boundaries", () => {
     const manifest = readPackage("packages/core/package.json");
     const dependencyNames = Object.keys(manifest.dependencies ?? {});
 
-    expect(dependencyNames).toContain("@react-native-node-graph/shared");
+    expect(dependencyNames).toContain("@kaiisuuwii/shared");
     expect(dependencyNames).not.toContain("react-native");
     expect(dependencyNames).not.toContain("@shopify/react-native-skia");
-    expect(dependencyNames).not.toContain("@react-native-node-graph/renderer-skia");
-    expect(dependencyNames).not.toContain("@react-native-node-graph/renderer-svg");
-    expect(dependencyNames).not.toContain("@react-native-node-graph/renderer-web");
+    expect(dependencyNames).not.toContain("@kaiisuuwii/renderer-skia");
+    expect(dependencyNames).not.toContain("@kaiisuuwii/renderer-svg");
+    expect(dependencyNames).not.toContain("@kaiisuuwii/renderer-web");
   });
 
   it("limits renderer-skia to shared and core contracts", () => {
@@ -42,7 +43,7 @@ describe("package boundaries", () => {
     const dependencyNames = Object.keys(manifest.dependencies ?? {});
 
     expect(dependencyNames.sort()).toEqual(
-      ["@react-native-node-graph/core", "@react-native-node-graph/shared"].sort()
+      ["@kaiisuuwii/core", "@kaiisuuwii/shared"].sort()
     );
   });
 
@@ -53,9 +54,7 @@ describe("package boundaries", () => {
       "packages/renderer-skia/package.json",
       "packages/renderer-svg/package.json",
       "packages/renderer-web/package.json",
-      "packages/plugins/package.json",
-      "packages/examples/package.json",
-      "packages/docs/package.json"
+      "packages/plugins/package.json"
     ];
 
     packagePaths.forEach((packagePath) => {
@@ -63,6 +62,24 @@ describe("package boundaries", () => {
 
       expect(manifest.private).toBe(false);
       expect(manifest.publishConfig?.access).toBe("public");
+      expect(manifest.publishConfig?.registry).toBe("https://registry.npmjs.org/");
+      expect(manifest.repository?.url).toBe(
+        "https://github.com/KaiSuuWii/react-native-node-graph.git"
+      );
+    });
+  });
+
+  it("keeps docs and examples workspace-only", () => {
+    const packagePaths = [
+      "packages/examples/package.json",
+      "packages/docs/package.json"
+    ];
+
+    packagePaths.forEach((packagePath) => {
+      const manifest = readPackage(packagePath);
+
+      expect(manifest.private).toBe(true);
+      expect(manifest.publishConfig).toBeUndefined();
       expect(manifest.repository?.url).toBe(
         "https://github.com/KaiSuuWii/react-native-node-graph.git"
       );

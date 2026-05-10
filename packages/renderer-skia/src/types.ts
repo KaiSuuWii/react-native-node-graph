@@ -9,14 +9,14 @@ import type {
   PortId,
   SelectionChangeMode,
   SelectionSnapshot
-} from "@react-native-node-graph/core";
+} from "@kaiisuuwii/core";
 import type {
   Bounds,
   EdgeId,
   GraphInteractionEventPayload,
   NodeId,
   Vec2
-} from "@react-native-node-graph/shared";
+} from "@kaiisuuwii/shared";
 
 export interface CameraVelocity {
   readonly x: number;

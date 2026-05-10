@@ -4,7 +4,7 @@ import {
   createExampleAppModel,
   createRendererFoundationExampleScreen,
   examplesManifest
-} from "@react-native-node-graph/examples";
+} from "@kaiisuuwii/examples";
 import { describe, expect, it } from "vitest";
 
 describe("examples public api", () => {

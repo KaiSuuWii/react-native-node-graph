@@ -1,15 +1,15 @@
-import { createCoreEngine } from "@react-native-node-graph/core";
-import { createSkiaRenderPlan } from "@react-native-node-graph/renderer-skia";
-import { vec2 } from "@react-native-node-graph/shared";
+import { createCoreEngine } from "@kaiisuuwii/core";
+import { createSkiaRenderPlan } from "@kaiisuuwii/renderer-skia";
+import { vec2 } from "@kaiisuuwii/shared";
 import {
   createAnnotationNodePlugin,
   createExecutableNodePlugin,
   createExecutableRendererPlugin
-} from "@react-native-node-graph/plugins";
+} from "@kaiisuuwii/plugins";
 import {
   CUSTOM_NODE_EXAMPLE_DOCUMENT,
   SMALL_GRAPH_EXAMPLE_DOCUMENT
-} from "@react-native-node-graph/examples";
+} from "@kaiisuuwii/examples";
 
 export const createCoreApiExample = () => {
   const engine = createCoreEngine({

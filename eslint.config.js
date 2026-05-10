@@ -9,9 +9,9 @@ const restrictedCoreImports = [
   "@shopify/react-native-skia",
   "react",
   "react-dom",
-  "@react-native-node-graph/renderer-skia",
-  "@react-native-node-graph/renderer-svg",
-  "@react-native-node-graph/renderer-web"
+  "@kaiisuuwii/renderer-skia",
+  "@kaiisuuwii/renderer-svg",
+  "@kaiisuuwii/renderer-web"
 ];
 
 const restrictedSharedImports = [
@@ -19,10 +19,10 @@ const restrictedSharedImports = [
   "@shopify/react-native-skia",
   "react",
   "react-dom",
-  "@react-native-node-graph/core",
-  "@react-native-node-graph/renderer-skia",
-  "@react-native-node-graph/renderer-svg",
-  "@react-native-node-graph/renderer-web"
+  "@kaiisuuwii/core",
+  "@kaiisuuwii/renderer-skia",
+  "@kaiisuuwii/renderer-svg",
+  "@kaiisuuwii/renderer-web"
 ];
 
 export default [

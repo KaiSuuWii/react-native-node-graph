@@ -5,8 +5,8 @@ import type {
   PortId,
   SelectionChangeMode,
   SelectionSnapshot
-} from "@react-native-node-graph/core";
-import { addVec2, subtractVec2, vec2, type Bounds, type NodeId, type Vec2 } from "@react-native-node-graph/shared";
+} from "@kaiisuuwii/core";
+import { addVec2, subtractVec2, vec2, type Bounds, type NodeId, type Vec2 } from "@kaiisuuwii/shared";
 
 import { createCameraState, panCamera, screenToGraphSpace, zoomCameraAtScreenPoint } from "./camera.js";
 import { buildSceneSpatialIndex, hitTestSceneBounds, hitTestScenePoint } from "./hit-testing.js";

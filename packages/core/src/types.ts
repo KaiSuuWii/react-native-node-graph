@@ -5,7 +5,7 @@ import type {
   GraphMetadata,
   NodeId,
   Vec2
-} from "@react-native-node-graph/shared";
+} from "@kaiisuuwii/shared";
 
 export type PortId = `port_${string}`;
 export type GroupId = `group_${string}`;

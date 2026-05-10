@@ -1,5 +1,5 @@
-import type { GraphInteractionContract, GraphSnapshot } from "@react-native-node-graph/core";
-import type { GraphInteractionEventPayload } from "@react-native-node-graph/shared";
+import type { GraphInteractionContract, GraphSnapshot } from "@kaiisuuwii/core";
+import type { GraphInteractionEventPayload } from "@kaiisuuwii/shared";
 import { createCameraState } from "./camera.js";
 import { buildSkiaRenderScene } from "./scene.js";
 import {

@@ -4,7 +4,7 @@ import {
   createGraphId,
   createNodeId,
   type GraphMetadata
-} from "@react-native-node-graph/shared";
+} from "@kaiisuuwii/shared";
 
 import { createGroupId } from "./ids.js";
 import type {

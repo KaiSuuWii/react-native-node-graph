@@ -9,8 +9,8 @@ import {
   type GraphPlugin,
   type GraphDocumentEnvelope,
   type NodeTypeDefinition
-} from "@react-native-node-graph/core";
-import { createGraphId, vec2 } from "@react-native-node-graph/shared";
+} from "@kaiisuuwii/core";
+import { createGraphId, vec2 } from "@kaiisuuwii/shared";
 import { describe, expect, it, vi } from "vitest";
 
 const graphMetadata = {

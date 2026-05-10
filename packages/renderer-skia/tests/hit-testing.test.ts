@@ -1,12 +1,12 @@
-import { createGraphSnapshot } from "@react-native-node-graph/core";
+import { createGraphSnapshot } from "@kaiisuuwii/core";
 import {
   DEFAULT_RENDERER_THEME,
   buildSceneSpatialIndex,
   buildSkiaRenderScene,
   hitTestSceneBounds,
   hitTestScenePoint
-} from "@react-native-node-graph/renderer-skia";
-import { createEdgeId, createGraphId, createNodeId, vec2 } from "@react-native-node-graph/shared";
+} from "@kaiisuuwii/renderer-skia";
+import { createEdgeId, createGraphId, createNodeId, vec2 } from "@kaiisuuwii/shared";
 import { describe, expect, it, vi } from "vitest";
 
 const sourceId = createNodeId("hit-source");

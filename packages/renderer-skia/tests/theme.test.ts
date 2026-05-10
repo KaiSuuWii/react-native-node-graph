@@ -2,7 +2,7 @@ import {
   createRendererThemeController,
   resolveRendererAccessibilityOptions,
   resolveRendererTheme
-} from "@react-native-node-graph/renderer-skia";
+} from "@kaiisuuwii/renderer-skia";
 import { describe, expect, it } from "vitest";
 
 describe("renderer-skia theme system", () => {

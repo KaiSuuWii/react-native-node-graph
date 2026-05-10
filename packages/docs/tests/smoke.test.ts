@@ -7,7 +7,7 @@ import {
   docsManifest,
   documentationSections,
   releaseHardeningChecklist
-} from "@react-native-node-graph/docs";
+} from "@kaiisuuwii/docs";
 import { describe, expect, it } from "vitest";
 
 describe("docs public api", () => {

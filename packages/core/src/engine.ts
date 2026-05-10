@@ -1,4 +1,4 @@
-import { DEFAULT_NODE_SIZE, type EdgeId, type NodeId } from "@react-native-node-graph/shared";
+import { DEFAULT_NODE_SIZE, type EdgeId, type NodeId } from "@kaiisuuwii/shared";
 
 import { buildExecutionPlan, validateExecutionPlan } from "./execution.js";
 import { createEdgeFactory, createGroupFactory, createNodeFactory, makePortId } from "./ids.js";

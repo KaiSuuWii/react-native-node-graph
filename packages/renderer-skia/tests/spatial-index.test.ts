@@ -1,5 +1,5 @@
-import { createSpatialIndex } from "@react-native-node-graph/renderer-skia";
-import { vec2 } from "@react-native-node-graph/shared";
+import { createSpatialIndex } from "@kaiisuuwii/renderer-skia";
+import { vec2 } from "@kaiisuuwii/shared";
 import { describe, expect, it } from "vitest";
 
 describe("renderer-skia spatial index", () => {
