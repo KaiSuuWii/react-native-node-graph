@@ -20,5 +20,6 @@ describe("examples public api", () => {
       width: 1280,
       height: 720
     });
+    expect(screen.editor.getRenderPlan().nodes).toHaveLength(3);
   });
 });

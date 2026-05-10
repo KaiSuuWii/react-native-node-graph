@@ -104,6 +104,7 @@ describe("renderer-skia scene composition", () => {
       "edge",
       "node",
       "selection",
+      "interaction",
       "debug"
     ]);
     expect(scene.layers[3]?.kind === "edge" ? scene.layers[3].items.length : 0).toBe(1);

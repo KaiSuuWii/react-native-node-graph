@@ -148,7 +148,7 @@ export interface SceneGridLayer {
 }
 
 export interface SceneGroupItem {
-  readonly id: string;
+  readonly id: GroupId;
   readonly position: Vec2;
   readonly size: Vec2;
   readonly color: string;
@@ -161,7 +161,7 @@ export interface SceneGroupLayer {
 }
 
 export interface RenderPortLayout {
-  readonly id: string;
+  readonly id: PortId;
   readonly name: string;
   readonly direction: "input" | "output";
   readonly position: Vec2;

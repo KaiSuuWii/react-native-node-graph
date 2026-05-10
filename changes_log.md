@@ -418,3 +418,108 @@ The following package-focused validations also pass:
 ## Verification note
 
 - `npm run build`, `npm run typecheck`, and default `npm run test` are currently blocked in this Codex sandbox because TypeScript build mode and Vitest's default config bundler attempt to write to protected output locations such as package `dist` directories, `.tsbuildinfo`, and `node_modules/.vite-temp`.
+
+# Sprint 05 Changes Log
+
+## Summary
+
+This sprint turned the Skia package from a static renderer foundation into an editor-capable interaction layer with hit testing, a spatial index, gesture-to-command mapping, preview feedback, and an example harness that exercises real core mutations.
+
+## Renderer interaction and hit testing
+
+- Added renderer-side interaction contracts and editor state in `packages/renderer-skia/src/types.ts` for:
+  - connection previews
+  - marquee selection overlays
+  - hit-test results and targets
+  - spatial index entries
+  - editor controller options and methods
+- Added `packages/renderer-skia/src/spatial-index.ts` with a lightweight grid spatial index supporting:
+  - inserts
+  - updates
+  - removals
+  - point queries
+  - bounds queries
+- Added `packages/renderer-skia/src/hit-testing.ts` with:
+  - point-in-bounds helpers
+  - bounds intersection helpers
+  - bezier edge distance sampling
+  - scene spatial index construction
+  - point hit testing with interaction priority
+  - bounds hit testing for marquee selection
+
+## Editor controller and gesture mapping
+
+- Added `packages/renderer-skia/src/editor.ts` with a pure graph editor controller that maps semantic gestures to core engine commands:
+  - tap selection for nodes, edges, groups, and canvas clear
+  - double tap toggle selection and canvas zoom reset
+  - long press marquee initialization
+  - drag for node movement and canvas panning
+  - pinch zoom through camera math
+  - connection preview start, update, commit, and cancel
+- Kept editing mutations routed through core APIs:
+  - `selectNode`
+  - `selectEdge`
+  - `selectGroup`
+  - `clearSelection`
+  - `updateNode`
+  - `createEdge`
+  - `validateGraph` for preview validation
+- Group dragging policy is implemented by dragging member nodes through the same node update path rather than bypassing core rules.
+
+## Scene composition and visual editing feedback
+
+- Extended `packages/renderer-skia/src/scene.ts` to render:
+  - edge selection highlights
+  - group selection highlights
+  - connection preview overlays
+  - marquee selection overlays
+- Extended interaction options in `packages/renderer-skia/src/theme.ts` with:
+  - hit slop
+  - edge hit width
+  - long press marquee toggle
+- Updated `packages/renderer-skia/src/index.ts` exports so the renderer package exposes:
+  - the editor controller
+  - hit-testing helpers
+  - spatial index helpers
+  - expanded scene and interaction types
+
+## Example harness
+
+- Updated `packages/examples/src/fixtures.ts` so the foundation fixture has valid group membership on nodes.
+- Extended `packages/examples/src/screen.ts` into a real editing harness backed by `createCoreEngine`, exposing:
+  - live render plan generation from engine snapshots
+  - node selection
+  - node dragging
+  - edge creation
+  - selection clearing
+
+## Tests added
+
+- Added `packages/renderer-skia/tests/spatial-index.test.ts` for:
+  - insert/query behavior
+  - update/query behavior
+  - removal behavior
+- Added `packages/renderer-skia/tests/hit-testing.test.ts` for:
+  - port priority over node hits
+  - edge hit testing
+  - deterministic marquee bounds queries
+- Added `packages/renderer-skia/tests/editor.test.ts` for:
+  - selection gesture to core selection flow
+  - node drag updating graph state with undo support
+  - invalid connection preview feedback
+  - valid edge creation through preview commit
+- Updated `packages/renderer-skia/tests/scene.test.ts` for the new interaction layer ordering.
+- Updated `packages/examples/tests/smoke.test.ts` to assert the harness can generate a live render plan.
+
+## Verified checkpoints
+
+The following validations pass from the repository root:
+
+- `npx tsc -p packages/core/tsconfig.json --noEmit --composite false --incremental false`
+- `npx tsc -p packages/renderer-skia/tsconfig.json --noEmit --composite false --incremental false`
+- `npx tsc -p packages/examples/tsconfig.json --noEmit --composite false --incremental false`
+- `npx vitest run --configLoader runner --cache false packages/renderer-skia/tests/hit-testing.test.ts packages/renderer-skia/tests/spatial-index.test.ts packages/renderer-skia/tests/editor.test.ts packages/renderer-skia/tests/scene.test.ts packages/renderer-skia/tests/layout.test.ts packages/renderer-skia/tests/camera.test.ts packages/examples/tests/smoke.test.ts`
+
+## Verification note
+
+- `npm run build --workspace @react-native-node-graph/core` and `npm run build --workspace @react-native-node-graph/renderer-skia` remain blocked in this Codex sandbox because writes to package `dist` artifacts and `.tsbuildinfo` files are denied with `EPERM`.

@@ -4,8 +4,12 @@ import { addVec2, vec2 } from "@react-native-node-graph/shared";
 import { createEdgeLayout, createGroupLayout, createNodeLayout } from "./layout.js";
 import type {
   BuildSceneOptions,
+  RenderConnectionPreview,
+  RenderEdgeLayout,
   RenderNodeLayout,
+  SceneGroupItem,
   SceneGridLayer,
+  SceneInteractionLayer,
   SceneLayer,
   SceneSelectionLayer,
   SelectionHighlight,
@@ -64,32 +68,109 @@ const createGridLayer = ({
 
 const createSelectionLayer = (
   snapshot: GraphSnapshot,
+  edgeLayouts: readonly RenderEdgeLayout[],
   nodeLayouts: readonly RenderNodeLayout[],
+  groupItems: readonly SceneGroupItem[],
   selectionColor: string,
   selectionWidth: number
-): SceneSelectionLayer => {
-  const items: SelectionHighlight[] = nodeLayouts.flatMap((layout) =>
-    snapshot.selection.nodeIds.includes(layout.id)
-      ? [
-          {
-            targetId: layout.id,
-            position: addVec2(layout.position, vec2(-6, -6)),
-            size: vec2(layout.size.x + 12, layout.size.y + 12),
-            color: selectionColor,
-            width: selectionWidth
-          }
-        ]
-      : []
-  );
+): SceneSelectionLayer => ({
+  kind: "selection",
+  items: [
+    ...nodeLayouts.flatMap((layout) =>
+      snapshot.selection.nodeIds.includes(layout.id)
+        ? [
+            {
+              targetId: layout.id,
+              position: addVec2(layout.position, vec2(-6, -6)),
+              size: vec2(layout.size.x + 12, layout.size.y + 12),
+              color: selectionColor,
+              width: selectionWidth
+            }
+          ]
+        : []
+    ),
+    ...edgeLayouts.flatMap((layout) =>
+      snapshot.selection.edgeIds.includes(layout.id)
+        ? [
+            {
+              targetId: layout.id,
+              position: vec2(
+                Math.min(layout.curve.start.x, layout.curve.end.x) - 6,
+                Math.min(layout.curve.start.y, layout.curve.end.y) - 6
+              ),
+              size: vec2(
+                Math.abs(layout.curve.end.x - layout.curve.start.x) + 12,
+                Math.abs(layout.curve.end.y - layout.curve.start.y) + 12
+              ),
+              color: selectionColor,
+              width: selectionWidth
+            }
+          ]
+        : []
+    ),
+    ...groupItems.flatMap((group) =>
+      snapshot.selection.groupIds.includes(group.id)
+        ? [
+            {
+              targetId: group.id,
+              position: addVec2(group.position, vec2(-8, -8)),
+              size: vec2(group.size.x + 16, group.size.y + 16),
+              color: selectionColor,
+              width: selectionWidth
+            }
+          ]
+        : []
+    )
+  ] satisfies SelectionHighlight[]
+});
+
+const createInteractionLayer = (options: BuildSceneOptions): SceneInteractionLayer => {
+  const connectionPreview = options.interactionState?.connectionPreview;
+  const marqueeSelection = options.interactionState?.marqueeSelection;
+
+  const renderedPreview: RenderConnectionPreview | undefined =
+    connectionPreview === undefined
+      ? undefined
+      : {
+          sourceNodeId: connectionPreview.sourceNodeId,
+          sourcePortId: connectionPreview.sourcePortId,
+          sourcePosition: connectionPreview.sourcePosition,
+          targetPosition: connectionPreview.currentPosition,
+          ...(connectionPreview.targetNodeId !== undefined
+            ? { targetNodeId: connectionPreview.targetNodeId }
+            : {}),
+          ...(connectionPreview.targetPortId !== undefined
+            ? { targetPortId: connectionPreview.targetPortId }
+            : {}),
+          valid: connectionPreview.valid
+        };
 
   return {
-    kind: "selection",
-    items
+    kind: "interaction",
+    ...(renderedPreview !== undefined ? { connectionPreview: renderedPreview } : {}),
+    ...(marqueeSelection !== undefined
+      ? {
+          marqueeSelection: {
+            bounds: {
+              min: vec2(
+                Math.min(marqueeSelection.start.x, marqueeSelection.current.x),
+                Math.min(marqueeSelection.start.y, marqueeSelection.current.y)
+              ),
+              max: vec2(
+                Math.max(marqueeSelection.start.x, marqueeSelection.current.x),
+                Math.max(marqueeSelection.start.y, marqueeSelection.current.y)
+              )
+            },
+            mode: marqueeSelection.mode
+          }
+        }
+      : {})
   };
 };
 
 export const buildSkiaRenderScene = (options: BuildSceneOptions): SkiaRenderScene => {
   const nodeLayouts = options.snapshot.nodes.map((node) => createNodeLayout(node, options.theme));
+  const groupItems = createGroupLayout(options.snapshot, options.theme);
   const edgeLayouts = options.snapshot.edges.flatMap((edge) => {
     const isSelected = options.snapshot.selection.edgeIds.includes(edge.id);
     const isInvalid = edge.source === edge.target;
@@ -108,7 +189,7 @@ export const buildSkiaRenderScene = (options: BuildSceneOptions): SkiaRenderScen
     createGridLayer(options),
     {
       kind: "group",
-      items: createGroupLayout(options.snapshot, options.theme)
+      items: groupItems
     },
     {
       kind: "edge",
@@ -120,10 +201,13 @@ export const buildSkiaRenderScene = (options: BuildSceneOptions): SkiaRenderScen
     },
     createSelectionLayer(
       options.snapshot,
+      edgeLayouts,
       nodeLayouts,
+      groupItems,
       options.theme.selection.color,
       options.theme.selection.width
     ),
+    createInteractionLayer(options),
     {
       kind: "debug",
       enabled: false,

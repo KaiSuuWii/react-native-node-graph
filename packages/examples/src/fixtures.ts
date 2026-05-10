@@ -24,6 +24,7 @@ export const FOUNDATION_EXAMPLE_DOCUMENT: GraphDocumentEnvelope = {
         position: vec2(120, 120),
         dimensions: vec2(220, 96),
         label: "Source",
+        groupId: "group_pipeline",
         ports: [
           {
             id: "port_source_out",
@@ -39,6 +40,7 @@ export const FOUNDATION_EXAMPLE_DOCUMENT: GraphDocumentEnvelope = {
         position: vec2(420, 240),
         dimensions: vec2(240, 112),
         label: "Mix",
+        groupId: "group_pipeline",
         ports: [
           {
             id: "port_mix_in_a",
@@ -66,6 +68,7 @@ export const FOUNDATION_EXAMPLE_DOCUMENT: GraphDocumentEnvelope = {
         position: vec2(780, 180),
         dimensions: vec2(200, 88),
         label: "Preview",
+        groupId: "group_pipeline",
         ports: [
           {
             id: "port_sink_in",
