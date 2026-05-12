@@ -2,7 +2,9 @@ import type { EdgeId, NodeId } from "@kaiisuuwii/shared";
 
 import { compareById } from "./model.js";
 import type {
+  CycleGroup,
   ExecutionBatch,
+  GraphEdgeSnapshot,
   GraphSnapshot,
   NodeTypeDefinition,
   ValidationError,
@@ -38,7 +40,8 @@ const createValidationResult = (
 ): ValidationResult => ({
   isValid: errors.length === 0,
   errors,
-  warnings: []
+  warnings: [],
+  cycleSets: []
 });
 
 const uniqueSorted = <T extends string>(values: readonly T[]): readonly T[] =>
@@ -306,4 +309,154 @@ export const validateExecutionPlan = (
   });
 
   return createValidationResult(errors);
+};
+
+const iterativeDfsFinish = (
+  start: NodeId,
+  adj: Map<NodeId, readonly NodeId[]>,
+  visited: Set<NodeId>,
+  order: NodeId[]
+): void => {
+  const stack: Array<{ nodeId: NodeId; childIndex: number }> = [{ nodeId: start, childIndex: 0 }];
+  visited.add(start);
+
+  while (stack.length > 0) {
+    const top = stack[stack.length - 1]!;
+    const children = adj.get(top.nodeId) ?? [];
+
+    if (top.childIndex < children.length) {
+      const child = children[top.childIndex++]!;
+
+      if (!visited.has(child)) {
+        visited.add(child);
+        stack.push({ nodeId: child, childIndex: 0 });
+      }
+    } else {
+      order.push(top.nodeId);
+      stack.pop();
+    }
+  }
+};
+
+const iterativeDfsCollect = (
+  start: NodeId,
+  adj: Map<NodeId, readonly NodeId[]>,
+  visited: Set<NodeId>,
+  component: NodeId[]
+): void => {
+  const stack: NodeId[] = [start];
+  visited.add(start);
+
+  while (stack.length > 0) {
+    const current = stack.pop()!;
+    component.push(current);
+
+    for (const neighbor of adj.get(current) ?? []) {
+      if (!visited.has(neighbor)) {
+        visited.add(neighbor);
+        stack.push(neighbor);
+      }
+    }
+  }
+};
+
+export const findStronglyConnectedComponents = (
+  nodes: readonly NodeId[],
+  edges: readonly GraphEdgeSnapshot[],
+  allowSelfLoops = false
+): readonly CycleGroup[] => {
+  const nodeSet = new Set(nodes);
+  const adj = new Map<NodeId, NodeId[]>();
+  const radj = new Map<NodeId, NodeId[]>();
+
+  for (const n of nodes) {
+    adj.set(n, []);
+    radj.set(n, []);
+  }
+
+  for (const edge of edges) {
+    if (!nodeSet.has(edge.source) || !nodeSet.has(edge.target)) {
+      continue;
+    }
+
+    adj.get(edge.source)!.push(edge.target);
+    radj.get(edge.target)!.push(edge.source);
+  }
+
+  const visited = new Set<NodeId>();
+  const finishOrder: NodeId[] = [];
+
+  for (const n of nodes) {
+    if (!visited.has(n)) {
+      iterativeDfsFinish(n, adj, visited, finishOrder);
+    }
+  }
+
+  const visited2 = new Set<NodeId>();
+  const result: CycleGroup[] = [];
+
+  for (let i = finishOrder.length - 1; i >= 0; i--) {
+    const n = finishOrder[i]!;
+
+    if (!visited2.has(n)) {
+      const component: NodeId[] = [];
+      iterativeDfsCollect(n, radj, visited2, component);
+
+      const componentSet = new Set(component);
+      const hasSelfLoop = edges.some((e) => e.source === e.target && componentSet.has(e.source));
+
+      if (component.length > 1 || (component.length === 1 && hasSelfLoop && allowSelfLoops)) {
+        const entryEdgeIds = edges
+          .filter((e) => nodeSet.has(e.source) && !componentSet.has(e.source) && componentSet.has(e.target))
+          .map((e) => e.id)
+          .sort();
+        const exitEdgeIds = edges
+          .filter((e) => componentSet.has(e.source) && nodeSet.has(e.target) && !componentSet.has(e.target))
+          .map((e) => e.id)
+          .sort();
+
+        result.push({
+          nodeIds: ([...component] as NodeId[]).sort(),
+          entryEdgeIds,
+          exitEdgeIds
+        });
+      }
+    }
+  }
+
+  return result;
+};
+
+export const condenseSCCs = (
+  sccGroups: readonly CycleGroup[],
+  edges: readonly GraphEdgeSnapshot[]
+): Map<number, number[]> => {
+  const nodeToScc = new Map<NodeId, number>();
+
+  sccGroups.forEach((group, i) => {
+    for (const nodeId of group.nodeIds) {
+      nodeToScc.set(nodeId, i);
+    }
+  });
+
+  const condensation = new Map<number, number[]>();
+
+  for (let i = 0; i < sccGroups.length; i++) {
+    condensation.set(i, []);
+  }
+
+  for (const edge of edges) {
+    const srcScc = nodeToScc.get(edge.source);
+    const tgtScc = nodeToScc.get(edge.target);
+
+    if (srcScc !== undefined && tgtScc !== undefined && srcScc !== tgtScc) {
+      const existing = condensation.get(srcScc) ?? [];
+
+      if (!existing.includes(tgtScc)) {
+        condensation.set(srcScc, [...existing, tgtScc]);
+      }
+    }
+  }
+
+  return condensation;
 };

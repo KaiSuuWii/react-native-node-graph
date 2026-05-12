@@ -17,6 +17,7 @@ describe("examples public api", () => {
         "invalid-graph",
         "custom-node",
         "plugin-example",
+        "cyclic-graph",
         "renderer-foundation-static"
       ])
     );

@@ -1,12 +1,18 @@
 export { createCoreEngine, createMigrationRegistry } from "./engine.js";
 export { createGroupId, createPortId } from "./ids.js";
 export { createEmptyGraph, createGraphSnapshot } from "./model.js";
+export { findStronglyConnectedComponents } from "./execution.js";
 export {
   CoreGraphError,
+  type CycleGroup,
+  type CyclicExecutionOptions,
   type ExecutionBatch,
   type ExecutionCacheEntry,
   type ExecutionCacheStats,
   type ExecutionContext,
+  type ExecutionConvergedEvent,
+  type ExecutionCycleIterationEvent,
+  type ExecutionDivergedEvent,
   type ExecutionInputs,
   type ExecutionInputValue,
   type ExecutionOutputs,
@@ -57,6 +63,7 @@ export {
   type PortInput,
   type SelectionChangeMode,
   type SelectionSnapshot,
+  type SteppedExecutionHandle,
   type UpdateNodeInput,
   type ValidationError,
   type ValidationResult,

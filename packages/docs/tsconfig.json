@@ -17,6 +17,9 @@
       "path": "../renderer-skia"
     },
     {
+      "path": "../renderer-svg"
+    },
+    {
       "path": "../plugins"
     },
     {

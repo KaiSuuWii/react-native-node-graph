@@ -6,14 +6,16 @@ export {
 } from "./content.js";
 export {
   createCoreApiExample,
+  createCyclicExecutionExample,
   createPluginAuthoringExample,
   createRendererApiExample,
   createSerializationExample,
+  createSvgRendererExample,
   documentationExamples
 } from "./examples.js";
 
 export const docsManifest = {
-  sprint: "accessibility-docs-examples-release",
-  sectionCount: 8,
-  exampleCount: 4
+  sprint: "cyclic-execution",
+  sectionCount: 10,
+  exampleCount: 6
 } as const;

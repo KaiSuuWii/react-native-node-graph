@@ -1,7 +1,9 @@
 import {
+  CYCLIC_GRAPH_EXAMPLE_DOCUMENT,
   INVALID_GRAPH_EXAMPLE_DOCUMENT,
   MEDIUM_GRAPH_EXAMPLE_DOCUMENT,
   PLUGIN_EXAMPLE_DOCUMENT,
+  createCyclicExecutionScreen,
   createExampleAppModel
 } from "@kaiisuuwii/examples";
 import { describe, expect, it } from "vitest";
@@ -48,5 +50,15 @@ describe("examples integration flows", () => {
     await expect(app.executeCurrentGraph()?.result).resolves.toMatchObject({
       status: "completed"
     });
+  });
+
+  it("executes the cyclic example fixture to convergence", async () => {
+    const screen = await createCyclicExecutionScreen();
+
+    expect(screen.snapshot.id).toBe(CYCLIC_GRAPH_EXAMPLE_DOCUMENT.graph.id);
+    expect(screen.status).toBe("completed");
+    expect(screen.converged).toBe(true);
+    expect(screen.iterationsRun).toBeGreaterThan(0);
+    expect(screen.cycleGroups).toHaveLength(1);
   });
 });

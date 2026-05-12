@@ -15,7 +15,16 @@ import {
   type RendererThemeScale,
   type SkiaRenderPlan
 } from "@kaiisuuwii/renderer-skia";
+import {
+  createSvgRenderPlan,
+  serializeSvgRenderPlan
+} from "@kaiisuuwii/renderer-svg";
 import { vec2 } from "@kaiisuuwii/shared";
+import {
+  applyLayout,
+  graphInputFromSnapshot,
+  type LayoutAlgorithm
+} from "@kaiisuuwii/layout";
 import {
   createAnnotationNodePlugin,
   createAnnotationRendererPlugin,
@@ -23,10 +32,15 @@ import {
   createExecutableRendererPlugin
 } from "@kaiisuuwii/plugins";
 
+import type { NodeTypeDefinition } from "@kaiisuuwii/core";
+
 import {
   CUSTOM_NODE_EXAMPLE_DOCUMENT,
+  CYCLIC_GRAPH_EXAMPLE_DOCUMENT,
   EXAMPLE_FIXTURES,
   FOUNDATION_EXAMPLE_DOCUMENT,
+  LAYOUT_DEMO_DOCUMENT,
+  SVG_STATIC_EXPORT_DOCUMENT,
   type ExampleFixtureId
 } from "./fixtures.js";
 
@@ -128,6 +142,24 @@ const EXAMPLE_DEFINITIONS: readonly ExampleDefinition[] = [
     document: EXAMPLE_FIXTURES["plugin-example"],
     createCorePlugins: () => [createExecutableNodePlugin()],
     createRendererPlugins: () => [createExecutableRendererPlugin()]
+  },
+  {
+    id: "cyclic-graph",
+    title: "Cyclic Graph Fixture",
+    description: "Fixed-point cyclic execution demo with convergence reporting enabled.",
+    mode: "engine",
+    document: EXAMPLE_FIXTURES["cyclic-graph"],
+    createCorePlugins: () => [],
+    createRendererPlugins: () => []
+  },
+  {
+    id: "svg-static-export",
+    title: "SVG Static Export",
+    description: "Demonstrates the SVG renderer producing a static SVG string for server-side export.",
+    mode: "engine",
+    document: EXAMPLE_FIXTURES["svg-static-export"],
+    createCorePlugins: () => [createExecutableNodePlugin()],
+    createRendererPlugins: () => [createExecutableRendererPlugin()]
   }
 ] as const;
 
@@ -151,10 +183,56 @@ const createValidationOverlayPlugin = (
   }
 });
 
-const createEngineForExample = (example: ExampleDefinition): CoreEngine => {
-  const engine = createCoreEngine({
-    plugins: example.createCorePlugins()
+const cyclicSourceNodeType: NodeTypeDefinition = {
+  type: "cyclic-source",
+  execution: {
+    execute: ({ node, inputs }) => {
+      const external =
+        typeof node.properties.externalValue === "number" ? node.properties.externalValue : 1.0;
+      const feedback = typeof inputs.port_a_feedback === "number" ? inputs.port_a_feedback : 0;
+      return { port_a_out: external + 0.5 * feedback };
+    }
+  }
+};
+
+const cyclicPassthroughNodeType: NodeTypeDefinition = {
+  type: "cyclic-passthrough",
+  execution: {
+    execute: ({ inputs }) => ({
+      port_b_out: typeof inputs.port_b_in === "number" ? inputs.port_b_in : 0
+    })
+  }
+};
+
+const cyclicDampenNodeType: NodeTypeDefinition = {
+  type: "cyclic-dampen",
+  execution: {
+    execute: ({ node, inputs }) => {
+      const factor = typeof node.properties.factor === "number" ? node.properties.factor : 0.5;
+      const value = typeof inputs.port_c_in === "number" ? inputs.port_c_in : 0;
+      return { port_c_out: value * factor };
+    }
+  }
+};
+
+const createCyclicExampleEngine = (): CoreEngine =>
+  createCoreEngine({
+    allowCycles: true,
+    cyclicExecution: {
+      allowCycles: true,
+      maxIterations: 200,
+      convergenceThreshold: 0.0001
+    },
+    nodeTypes: [cyclicSourceNodeType, cyclicPassthroughNodeType, cyclicDampenNodeType]
   });
+
+const createEngineForExample = (example: ExampleDefinition): CoreEngine => {
+  const engine =
+    example.id === "cyclic-graph"
+      ? createCyclicExampleEngine()
+      : createCoreEngine({
+          plugins: example.createCorePlugins()
+        });
 
   engine.importGraph(example.document);
   return engine;
@@ -360,6 +438,98 @@ export const createExampleAppModel = (
   };
 };
 
+export const createSvgExportScreen = () => {
+  const snapshot = SVG_STATIC_EXPORT_DOCUMENT.graph;
+  const plan = createSvgRenderPlan({
+    snapshot,
+    viewport: { width: 1280, height: 720 },
+    themeMode: "light"
+  });
+  const svgString = serializeSvgRenderPlan(plan);
+
+  return {
+    id: "svg-static-export",
+    title: "SVG Static Export",
+    snapshot,
+    svgString,
+    nodeCount: plan.diagnostics.visibleNodeCount,
+    layerKinds: plan.layers.map((l) => l.kind),
+    viewBox: plan.viewBox
+  };
+};
+
+export const createLayoutDemoScreen = (algorithm: LayoutAlgorithm = "layered") => {
+  const engine = createCoreEngine({});
+  engine.importGraph(LAYOUT_DEMO_DOCUMENT);
+
+  const snapshot = engine.getSnapshot();
+  const layoutInput = graphInputFromSnapshot(snapshot);
+
+  const defaultOptions: Record<LayoutAlgorithm, Parameters<typeof applyLayout>[1]> = {
+    layered: {
+      algorithm: "layered" as const,
+      direction: "top-bottom" as const,
+      nodePaddingX: 40,
+      nodePaddingY: 60,
+      rankSeparation: 20,
+      edgeRouting: "curved" as const,
+      centerGraph: true
+    },
+    "force-directed": {
+      algorithm: "force-directed" as const,
+      iterations: 300,
+      convergenceThreshold: 0.5,
+      repulsionStrength: 8000,
+      attractionStrength: 0.1,
+      idealEdgeLength: 150,
+      gravity: 0.05,
+      cooling: 0.98,
+      initialTemperature: 200,
+      edgeRouting: "curved" as const
+    },
+    tree: {
+      algorithm: "tree" as const,
+      direction: "top-bottom" as const,
+      nodePaddingX: 40,
+      nodePaddingY: 80,
+      edgeRouting: "curved" as const,
+      centerSubtrees: true
+    },
+    radial: {
+      algorithm: "radial" as const,
+      radiusStep: 120,
+      startAngle: 0,
+      edgeRouting: "curved" as const
+    }
+  };
+
+  const opts = defaultOptions[algorithm];
+  const result = applyLayout(layoutInput, opts);
+
+  engine.beginTransaction();
+  for (const { id, position } of result.positions) {
+    engine.updateNode(id as `node_${string}`, { position });
+  }
+  engine.endTransaction();
+
+  const updatedSnapshot = engine.getSnapshot();
+  engine.dispose();
+
+  const renderPlan = createSkiaRenderPlan({
+    snapshot: updatedSnapshot,
+    interaction: { onEvent: () => undefined },
+    viewport: { width: 1280, height: 720 }
+  });
+
+  return {
+    id: "layout-demo",
+    algorithm,
+    layoutResult: result,
+    snapshot: updatedSnapshot,
+    renderPlan
+  };
+};
+
 export const createRendererFoundationExampleScreen = () => {
   const app = createExampleAppModel("plugin-example");
   const execution = app.executeCurrentGraph();
@@ -390,5 +560,26 @@ export const createRendererFoundationExampleScreen = () => {
       exportGraph: app.exportGraph
     },
     app
+  };
+};
+
+export const createCyclicExecutionScreen = async () => {
+  const engine = createCyclicExampleEngine();
+  engine.importGraph(CYCLIC_GRAPH_EXAMPLE_DOCUMENT);
+
+  const handle = engine.execute();
+  const result = await handle.result;
+
+  engine.dispose();
+
+  return {
+    id: "cyclic-execution",
+    title: "Cyclic Execution Demo",
+    snapshot: CYCLIC_GRAPH_EXAMPLE_DOCUMENT.graph,
+    iterationsRun: result.iterationsRun,
+    converged: result.converged,
+    cycleGroups: result.cycleGroups,
+    status: result.status,
+    outputs: result.nodeResults
   };
 };

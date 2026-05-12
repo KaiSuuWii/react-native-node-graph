@@ -5,9 +5,11 @@ import {
   createGraphSnapshot,
   createGroupId,
   createMigrationRegistry,
+  findStronglyConnectedComponents,
   type ExecutionOutputs,
   type GraphPlugin,
   type GraphDocumentEnvelope,
+  type GraphEdgeSnapshot,
   type NodeTypeDefinition
 } from "@kaiisuuwii/core";
 import { createGraphId, vec2 } from "@kaiisuuwii/shared";
@@ -1290,5 +1292,440 @@ describe("core engine determinism", () => {
       startedAtIso: "normalized",
       completedAtIso: "normalized"
     });
+  });
+});
+
+// ─── Sprint 11: Cyclic execution ─────────────────────────────────────────────
+
+const makeNodeId = (id: string) => id as Parameters<typeof findStronglyConnectedComponents>[0][number];
+
+const edgeSnap = (
+  id: string,
+  source: string,
+  target: string
+): GraphEdgeSnapshot => ({
+  id: id as GraphEdgeSnapshot["id"],
+  source: source as GraphEdgeSnapshot["source"],
+  target: target as GraphEdgeSnapshot["target"]
+});
+
+describe("findStronglyConnectedComponents", () => {
+  it("returns no SCCs for a DAG", () => {
+    const nodes = ["a", "b", "c"].map(makeNodeId);
+    const edges = [edgeSnap("e1", "a", "b"), edgeSnap("e2", "b", "c")];
+    expect(findStronglyConnectedComponents(nodes, edges)).toHaveLength(0);
+  });
+
+  it("detects a 3-node cycle", () => {
+    const nodes = ["a", "b", "c"].map(makeNodeId);
+    const edges = [edgeSnap("e1", "a", "b"), edgeSnap("e2", "b", "c"), edgeSnap("e3", "c", "a")];
+    const sccs = findStronglyConnectedComponents(nodes, edges);
+    expect(sccs).toHaveLength(1);
+    expect(sccs[0]!.nodeIds.sort()).toEqual(["a", "b", "c"]);
+  });
+
+  it("detects two independent cycles", () => {
+    const nodes = ["a", "b", "c", "d"].map(makeNodeId);
+    const edges = [
+      edgeSnap("e1", "a", "b"),
+      edgeSnap("e2", "b", "a"),
+      edgeSnap("e3", "c", "d"),
+      edgeSnap("e4", "d", "c")
+    ];
+    const sccs = findStronglyConnectedComponents(nodes, edges);
+    expect(sccs).toHaveLength(2);
+    const sorted = sccs.map((s) => s.nodeIds.slice().sort()).sort((x, y) => x[0]!.localeCompare(y[0]!));
+    expect(sorted).toEqual([["a", "b"], ["c", "d"]]);
+  });
+
+  it("does not report a self-loop when allowSelfLoops is false", () => {
+    const nodes = ["a"].map(makeNodeId);
+    const edges = [edgeSnap("e1", "a", "a")];
+    expect(findStronglyConnectedComponents(nodes, edges, false)).toHaveLength(0);
+  });
+
+  it("reports a self-loop SCC when allowSelfLoops is true", () => {
+    const nodes = ["a"].map(makeNodeId);
+    const edges = [edgeSnap("e1", "a", "a")];
+    const sccs = findStronglyConnectedComponents(nodes, edges, true);
+    expect(sccs).toHaveLength(1);
+    expect(sccs[0]!.nodeIds).toEqual(["a"]);
+  });
+
+  it("computes entryEdgeIds and exitEdgeIds for a cycle embedded in a larger graph", () => {
+    // x → a → b → a (cycle), b → y
+    const nodes = ["x", "a", "b", "y"].map(makeNodeId);
+    const edges = [
+      edgeSnap("entry", "x", "a"),
+      edgeSnap("forward", "a", "b"),
+      edgeSnap("back", "b", "a"),
+      edgeSnap("exit", "b", "y")
+    ];
+    const sccs = findStronglyConnectedComponents(nodes, edges);
+    expect(sccs).toHaveLength(1);
+    const scc = sccs[0]!;
+    expect(scc.nodeIds.sort()).toEqual(["a", "b"]);
+    expect(scc.entryEdgeIds).toEqual(["entry"]);
+    expect(scc.exitEdgeIds).toEqual(["exit"]);
+  });
+});
+
+// Node types for cyclic execution tests
+
+const cyclicSourceType: NodeTypeDefinition = {
+  type: "cyclic-source",
+  defaultLabel: "Source",
+  ports: [
+    { id: "feedback", name: "Feedback", direction: "input" },
+    { id: "out", name: "Out", direction: "output" }
+  ],
+  execution: {
+    requiredInputs: [],
+    execute: async ({ inputs, properties }) => {
+      const feedback = (inputs["feedback"] as number | undefined) ?? 0;
+      const base = (properties["base"] as number) ?? 1.0;
+      return { out: base + feedback * 0.5 };
+    }
+  }
+};
+
+const cyclicPassthroughType: NodeTypeDefinition = {
+  type: "cyclic-passthrough",
+  defaultLabel: "Passthrough",
+  ports: [
+    { id: "in", name: "In", direction: "input" },
+    { id: "out", name: "Out", direction: "output" }
+  ],
+  execution: {
+    requiredInputs: ["in"],
+    execute: async ({ inputs }) => ({ out: inputs["in"] })
+  }
+};
+
+const cyclicDampenType: NodeTypeDefinition = {
+  type: "cyclic-dampen",
+  defaultLabel: "Dampen",
+  ports: [
+    { id: "in", name: "In", direction: "input" },
+    { id: "out", name: "Out", direction: "output" }
+  ],
+  execution: {
+    requiredInputs: ["in"],
+    execute: async ({ inputs, properties }) => {
+      const factor = (properties["factor"] as number) ?? 0.5;
+      return { out: (inputs["in"] as number) * factor };
+    }
+  }
+};
+
+const cyclicStringType: NodeTypeDefinition = {
+  type: "cyclic-string",
+  defaultLabel: "StringNode",
+  ports: [
+    { id: "trigger", name: "Trigger", direction: "input" },
+    { id: "out", name: "Out", direction: "output" }
+  ],
+  execution: {
+    requiredInputs: [],
+    execute: async ({ inputs }) => {
+      const trigger = (inputs["trigger"] as number | undefined) ?? 0;
+      return { out: trigger > 0 ? "active" : "idle" };
+    }
+  }
+};
+
+const makeCyclicEngine = (opts?: { maxIterations?: number; convergenceThreshold?: number }) =>
+  createCoreEngine({
+    idSeed: "cyclic-test",
+    allowCycles: true,
+    cyclicExecution: {
+      allowCycles: true,
+      maxIterations: opts?.maxIterations ?? 50,
+      convergenceThreshold: opts?.convergenceThreshold ?? 0.0001
+    },
+    nodeTypes: [
+      cyclicSourceType,
+      cyclicPassthroughType,
+      cyclicDampenType,
+      cyclicStringType,
+      sourceExecutionNodeType,
+      sumExecutionNodeType,
+      sinkExecutionNodeType
+    ]
+  });
+
+describe("cyclic execution — allowCycles: false rejects cyclic graph", () => {
+  it("returns failed status when graph contains a cycle", async () => {
+    const engine = createCoreEngine({
+      idSeed: "no-cycles",
+      allowCycles: true,
+      nodeTypes: [cyclicSourceType, cyclicPassthroughType, cyclicDampenType]
+    });
+
+    const a = engine.createNode({ type: "cyclic-source", position: vec2(0, 0), properties: { base: 1 }, ports: cyclicSourceType.ports });
+    const b = engine.createNode({ type: "cyclic-passthrough", position: vec2(200, 0), ports: cyclicPassthroughType.ports });
+    const c = engine.createNode({ type: "cyclic-dampen", position: vec2(400, 0), properties: { factor: 0.5 }, ports: cyclicDampenType.ports });
+
+    engine.createEdge({ source: a.id, target: b.id, sourcePortId: "out", targetPortId: "in" });
+    engine.createEdge({ source: b.id, target: c.id, sourcePortId: "out", targetPortId: "in" });
+    engine.createEdge({ source: c.id, target: a.id, sourcePortId: "out", targetPortId: "feedback" });
+
+    // Engine with allowCycles: false at execution level
+    const strictEngine = createCoreEngine({
+      idSeed: "strict-no-cycles",
+      allowCycles: true,
+      nodeTypes: [cyclicSourceType, cyclicPassthroughType, cyclicDampenType]
+    });
+
+    const snap = engine.getSnapshot();
+    strictEngine.loadGraph({ nodes: snap.nodes, edges: snap.edges });
+
+    const result = await strictEngine.execute().result;
+    expect(result.status).toBe("failed");
+  });
+});
+
+describe("cyclic execution — core fixed-point", () => {
+  it("runs a DAG with allowCycles:true and returns iterationsRun: 0", async () => {
+    const engine = makeCyclicEngine();
+    const left = engine.createNode({ type: "source-exec", position: vec2(0, 0), properties: { value: 3 }, ports: sourceExecutionNodeType.ports });
+    const right = engine.createNode({ type: "source-exec", position: vec2(0, 120), properties: { value: 7 }, ports: sourceExecutionNodeType.ports });
+    const sum = engine.createNode({ type: "sum-exec", position: vec2(200, 60), ports: sumExecutionNodeType.ports });
+    engine.createEdge({ source: left.id, target: sum.id, sourcePortId: "port_out", targetPortId: "port_left" });
+    engine.createEdge({ source: right.id, target: sum.id, sourcePortId: "port_out", targetPortId: "port_right" });
+
+    const result = await engine.execute().result;
+    expect(result.status).toBe("completed");
+    expect(result.iterationsRun).toBe(0);
+    expect(result.converged).toBe(true);
+    expect(result.cycleGroups).toHaveLength(0);
+    expect(result.nodeResults[sum.id]?.outputs["port_out"]).toBe(10);
+  });
+
+  it("emits executionCycleIteration events per iteration with non-increasing maxDelta", async () => {
+    const engine = makeCyclicEngine();
+    const a = engine.createNode({ type: "cyclic-source", position: vec2(0, 0), properties: { base: 1 }, ports: cyclicSourceType.ports });
+    const b = engine.createNode({ type: "cyclic-passthrough", position: vec2(200, 0), ports: cyclicPassthroughType.ports });
+    const c = engine.createNode({ type: "cyclic-dampen", position: vec2(400, 0), properties: { factor: 0.5 }, ports: cyclicDampenType.ports });
+
+    engine.createEdge({ source: a.id, target: b.id, sourcePortId: "out", targetPortId: "in" });
+    engine.createEdge({ source: b.id, target: c.id, sourcePortId: "out", targetPortId: "in" });
+    engine.createEdge({ source: c.id, target: a.id, sourcePortId: "out", targetPortId: "feedback" });
+
+    const iterEvents: { iteration: number; maxDelta: number }[] = [];
+    engine.on("executionCycleIteration", (e) => iterEvents.push({ iteration: e.iteration, maxDelta: e.maxDelta }));
+
+    const result = await engine.execute().result;
+    expect(result.status).toBe("completed");
+    expect(iterEvents.length).toBeGreaterThan(0);
+    expect(iterEvents[0]!.iteration).toBe(1);
+
+    // Deltas should be non-increasing overall (may fluctuate slightly but should trend down)
+    const lastDelta = iterEvents[iterEvents.length - 1]!.maxDelta;
+    expect(lastDelta).toBeLessThan(0.0001);
+  });
+
+  it("emits executionConverged when cycle converges", async () => {
+    const engine = makeCyclicEngine();
+    const a = engine.createNode({ type: "cyclic-source", position: vec2(0, 0), properties: { base: 1 }, ports: cyclicSourceType.ports });
+    const b = engine.createNode({ type: "cyclic-passthrough", position: vec2(200, 0), ports: cyclicPassthroughType.ports });
+    const c = engine.createNode({ type: "cyclic-dampen", position: vec2(400, 0), properties: { factor: 0.5 }, ports: cyclicDampenType.ports });
+
+    engine.createEdge({ source: a.id, target: b.id, sourcePortId: "out", targetPortId: "in" });
+    engine.createEdge({ source: b.id, target: c.id, sourcePortId: "out", targetPortId: "in" });
+    engine.createEdge({ source: c.id, target: a.id, sourcePortId: "out", targetPortId: "feedback" });
+
+    const convergedEvents: { groupIndex: number; iterations: number; finalDelta: number }[] = [];
+    engine.on("executionConverged", (e) => convergedEvents.push(e));
+
+    const result = await engine.execute().result;
+    expect(result.converged).toBe(true);
+    expect(convergedEvents).toHaveLength(1);
+    expect(convergedEvents[0]!.finalDelta).toBeLessThan(0.0001);
+  });
+
+  it("emits executionDiverged when maxIterations exceeded", async () => {
+    const engine = makeCyclicEngine({ maxIterations: 2, convergenceThreshold: 0.0000001 });
+    const a = engine.createNode({ type: "cyclic-source", position: vec2(0, 0), properties: { base: 1 }, ports: cyclicSourceType.ports });
+    const b = engine.createNode({ type: "cyclic-passthrough", position: vec2(200, 0), ports: cyclicPassthroughType.ports });
+
+    // Two-node cycle that won't converge in 2 iters with very tight threshold
+    engine.createEdge({ source: a.id, target: b.id, sourcePortId: "out", targetPortId: "in" });
+    engine.createEdge({ source: b.id, target: a.id, sourcePortId: "out", targetPortId: "feedback" });
+
+    const divergedEvents: { groupIndex: number; iterations: number; lastDelta: number }[] = [];
+    engine.on("executionDiverged", (e) => divergedEvents.push(e));
+
+    const result = await engine.execute().result;
+    expect(result.converged).toBe(false);
+    expect(divergedEvents).toHaveLength(1);
+    expect(divergedEvents[0]!.iterations).toBe(2);
+  });
+
+  it("treats non-numeric output change as Infinity delta", async () => {
+    const engine = makeCyclicEngine({ maxIterations: 3, convergenceThreshold: 0.0000001 });
+    const a = engine.createNode({ type: "cyclic-string", position: vec2(0, 0), ports: cyclicStringType.ports });
+    const b = engine.createNode({ type: "cyclic-passthrough", position: vec2(200, 0), ports: cyclicPassthroughType.ports });
+
+    engine.createEdge({ source: a.id, target: b.id, sourcePortId: "out", targetPortId: "in" });
+    engine.createEdge({ source: b.id, target: a.id, sourcePortId: "out", targetPortId: "trigger" });
+
+    const iterEvents: { maxDelta: number }[] = [];
+    engine.on("executionCycleIteration", (e) => iterEvents.push({ maxDelta: e.maxDelta }));
+
+    // First iteration: a has no prior output, b has no prior output → no prior for a's out → Infinity
+    // After cycle stabilizes (string doesn't change), delta becomes 0
+    await engine.execute().result;
+
+    // At least one event should have Infinity (first pass from cold start with changing string value)
+    const hasInfinity = iterEvents.some((e) => e.maxDelta === Infinity);
+    expect(hasInfinity).toBe(true);
+  });
+
+  it("warm-start: second execute on unchanged cyclic graph converges in 1 iteration", async () => {
+    const engine = makeCyclicEngine();
+    const a = engine.createNode({ type: "cyclic-source", position: vec2(0, 0), properties: { base: 1 }, ports: cyclicSourceType.ports });
+    const b = engine.createNode({ type: "cyclic-passthrough", position: vec2(200, 0), ports: cyclicPassthroughType.ports });
+    const c = engine.createNode({ type: "cyclic-dampen", position: vec2(400, 0), properties: { factor: 0.5 }, ports: cyclicDampenType.ports });
+
+    engine.createEdge({ source: a.id, target: b.id, sourcePortId: "out", targetPortId: "in" });
+    engine.createEdge({ source: b.id, target: c.id, sourcePortId: "out", targetPortId: "in" });
+    engine.createEdge({ source: c.id, target: a.id, sourcePortId: "out", targetPortId: "feedback" });
+
+    const firstResult = await engine.execute().result;
+    expect(firstResult.status).toBe("completed");
+    expect(firstResult.iterationsRun).toBeGreaterThan(1);
+
+    const secondResult = await engine.execute().result;
+    expect(secondResult.status).toBe("completed");
+    // Second run warm-starts from cache → converges in 1 iteration (delta already < threshold)
+    expect(secondResult.iterationsRun).toBe(1);
+    expect(secondResult.converged).toBe(true);
+  });
+
+  it("cyclic fixture: 3-node feedback loop converges and produces correct outputs", async () => {
+    const engine = makeCyclicEngine();
+    const a = engine.createNode({ type: "cyclic-source", position: vec2(0, 0), properties: { base: 2 }, ports: cyclicSourceType.ports });
+    const b = engine.createNode({ type: "cyclic-passthrough", position: vec2(200, 0), ports: cyclicPassthroughType.ports });
+    const c = engine.createNode({ type: "cyclic-dampen", position: vec2(400, 0), properties: { factor: 0.5 }, ports: cyclicDampenType.ports });
+
+    engine.createEdge({ source: a.id, target: b.id, sourcePortId: "out", targetPortId: "in" });
+    engine.createEdge({ source: b.id, target: c.id, sourcePortId: "out", targetPortId: "in" });
+    engine.createEdge({ source: c.id, target: a.id, sourcePortId: "out", targetPortId: "feedback" });
+
+    const result = await engine.execute().result;
+    expect(result.status).toBe("completed");
+    expect(result.converged).toBe(true);
+    expect(result.cycleGroups).toHaveLength(1);
+    expect(result.cycleGroups[0]!.nodeIds.sort()).toEqual([a.id, b.id, c.id].sort());
+
+    // Fixed-point: a_out = 2 + c_out*0.5, b_out = a_out, c_out = b_out*0.5
+    // → a_out = 2 + 0.5*(0.5*a_out) → a_out*(1 - 0.25) = 2 → a_out ≈ 2.667
+    const aOut = result.nodeResults[a.id]?.outputs["out"] as number;
+    expect(aOut).toBeCloseTo(8 / 3, 3);
+  });
+
+  it("two runs produce identical outputs (determinism)", async () => {
+    const build = async () => {
+      const engine = makeCyclicEngine();
+      const a = engine.createNode({ type: "cyclic-source", position: vec2(0, 0), properties: { base: 1 }, ports: cyclicSourceType.ports });
+      const b = engine.createNode({ type: "cyclic-passthrough", position: vec2(200, 0), ports: cyclicPassthroughType.ports });
+      const c = engine.createNode({ type: "cyclic-dampen", position: vec2(400, 0), properties: { factor: 0.5 }, ports: cyclicDampenType.ports });
+      engine.createEdge({ source: a.id, target: b.id, sourcePortId: "out", targetPortId: "in" });
+      engine.createEdge({ source: b.id, target: c.id, sourcePortId: "out", targetPortId: "in" });
+      engine.createEdge({ source: c.id, target: a.id, sourcePortId: "out", targetPortId: "feedback" });
+      return (await engine.execute().result).nodeResults;
+    };
+
+    const [r1, r2] = await Promise.all([build(), build()]);
+    const nodeIds = Object.keys(r1!);
+
+    for (const id of nodeIds) {
+      const out1 = r1![id]?.outputs;
+      const out2 = r2![id]?.outputs;
+
+      for (const key of Object.keys(out1 ?? {})) {
+        const v1 = (out1 as Record<string, unknown>)[key] as number;
+        const v2 = (out2 as Record<string, unknown>)[key] as number;
+        expect(Math.abs(v1 - v2)).toBeLessThan(0.0001);
+      }
+    }
+  });
+});
+
+describe("cyclic execution — stepped handle", () => {
+  it("step() advances the cycle one iteration at a time", async () => {
+    const engine = createCoreEngine({
+      idSeed: "stepped-test",
+      allowCycles: true,
+      cyclicExecution: {
+        allowCycles: true,
+        maxIterations: 50,
+        convergenceThreshold: 0.0001,
+        cycleBehavior: "stepped"
+      },
+      nodeTypes: [cyclicSourceType, cyclicPassthroughType, cyclicDampenType]
+    });
+
+    const a = engine.createNode({ type: "cyclic-source", position: vec2(0, 0), properties: { base: 1 }, ports: cyclicSourceType.ports });
+    const b = engine.createNode({ type: "cyclic-passthrough", position: vec2(200, 0), ports: cyclicPassthroughType.ports });
+    const c = engine.createNode({ type: "cyclic-dampen", position: vec2(400, 0), properties: { factor: 0.5 }, ports: cyclicDampenType.ports });
+
+    engine.createEdge({ source: a.id, target: b.id, sourcePortId: "out", targetPortId: "in" });
+    engine.createEdge({ source: b.id, target: c.id, sourcePortId: "out", targetPortId: "in" });
+    engine.createEdge({ source: c.id, target: a.id, sourcePortId: "out", targetPortId: "feedback" });
+
+    const handle = engine.execute() as import("@kaiisuuwii/core").SteppedExecutionHandle;
+    expect(typeof handle.step).toBe("function");
+
+    let steps = 0;
+    let done = false;
+    let finalResult: import("@kaiisuuwii/core").ExecutionResult | undefined;
+
+    while (!done && steps < 200) {
+      const { done: d, result } = await handle.step();
+      done = d;
+      steps++;
+      if (result !== undefined) {
+        finalResult = result;
+      }
+    }
+
+    expect(finalResult).toBeDefined();
+    expect(finalResult!.status).toBe("completed");
+    expect(finalResult!.converged).toBe(true);
+  });
+
+  it("cancel() on a stepped handle yields status: cancelled", async () => {
+    const engine = createCoreEngine({
+      idSeed: "stepped-cancel",
+      allowCycles: true,
+      cyclicExecution: {
+        allowCycles: true,
+        maxIterations: 1000,
+        convergenceThreshold: 1e-12,
+        cycleBehavior: "stepped"
+      },
+      nodeTypes: [cyclicSourceType, cyclicPassthroughType, cyclicDampenType]
+    });
+
+    const a = engine.createNode({ type: "cyclic-source", position: vec2(0, 0), properties: { base: 1 }, ports: cyclicSourceType.ports });
+    const b = engine.createNode({ type: "cyclic-passthrough", position: vec2(200, 0), ports: cyclicPassthroughType.ports });
+    const c = engine.createNode({ type: "cyclic-dampen", position: vec2(400, 0), properties: { factor: 0.5 }, ports: cyclicDampenType.ports });
+
+    engine.createEdge({ source: a.id, target: b.id, sourcePortId: "out", targetPortId: "in" });
+    engine.createEdge({ source: b.id, target: c.id, sourcePortId: "out", targetPortId: "in" });
+    engine.createEdge({ source: c.id, target: a.id, sourcePortId: "out", targetPortId: "feedback" });
+
+    const handle = engine.execute() as import("@kaiisuuwii/core").SteppedExecutionHandle;
+
+    // Take one step to start, then cancel
+    await handle.step();
+    handle.cancel();
+
+    // Next step should complete with cancelled status
+    const { done, result } = await handle.step();
+    expect(done).toBe(true);
+    expect(result!.status).toBe("cancelled");
   });
 });

@@ -23,13 +23,14 @@
     "test:integration": "vitest run packages/examples/tests/integration.test.ts packages/docs/tests/smoke.test.ts",
     "test:renderer-theme": "vitest run packages/renderer-skia/tests/theme.test.ts packages/renderer-skia/tests/scene.test.ts",
     "benchmark:renderer": "vitest run packages/renderer-skia/tests/performance-benchmark.test.ts",
+    "benchmark:layout": "vitest run packages/layout/benchmarks/layout-benchmark.ts",
     "release:check": "npm run typecheck && npm run lint && npm run test && npm run benchmark:renderer",
-    "publish:dry-run": "npm run build && npm pack --dry-run --workspace @kaiisuuwii/shared --workspace @kaiisuuwii/core --workspace @kaiisuuwii/renderer-skia --workspace @kaiisuuwii/renderer-svg --workspace @kaiisuuwii/renderer-web --workspace @kaiisuuwii/plugins",
-    "publish:public": "npm publish --workspace @kaiisuuwii/shared && npm publish --workspace @kaiisuuwii/core && npm publish --workspace @kaiisuuwii/renderer-skia && npm publish --workspace @kaiisuuwii/renderer-svg && npm publish --workspace @kaiisuuwii/renderer-web && npm publish --workspace @kaiisuuwii/plugins",
+    "publish:dry-run": "npm run build && npm pack --dry-run --workspace @kaiisuuwii/shared --workspace @kaiisuuwii/core --workspace @kaiisuuwii/renderer-skia --workspace @kaiisuuwii/renderer-svg --workspace @kaiisuuwii/renderer-web --workspace @kaiisuuwii/plugins --workspace @kaiisuuwii/layout",
+    "publish:public": "npm publish --workspace @kaiisuuwii/shared && npm publish --workspace @kaiisuuwii/core && npm publish --workspace @kaiisuuwii/renderer-skia && npm publish --workspace @kaiisuuwii/renderer-svg && npm publish --workspace @kaiisuuwii/renderer-web && npm publish --workspace @kaiisuuwii/plugins && npm publish --workspace @kaiisuuwii/layout",
     "release:publish:public": "npm run release:check && npm run build && npm run publish:public",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "clean": "node --eval \"import('node:fs/promises').then(async fs => { for (const path of ['packages/core/dist','packages/core/.tsbuildinfo','packages/renderer-skia/dist','packages/renderer-skia/.tsbuildinfo','packages/renderer-svg/dist','packages/renderer-svg/.tsbuildinfo','packages/renderer-web/dist','packages/renderer-web/.tsbuildinfo','packages/shared/dist','packages/shared/.tsbuildinfo','packages/examples/dist','packages/examples/.tsbuildinfo','packages/plugins/dist','packages/plugins/.tsbuildinfo','packages/docs/dist','packages/docs/.tsbuildinfo','coverage']) { await fs.rm(path, { recursive: true, force: true }); } })\""
+    "clean": "node --eval \"import('node:fs/promises').then(async fs => { for (const path of ['packages/core/dist','packages/core/.tsbuildinfo','packages/renderer-skia/dist','packages/renderer-skia/.tsbuildinfo','packages/renderer-svg/dist','packages/renderer-svg/.tsbuildinfo','packages/renderer-web/dist','packages/renderer-web/.tsbuildinfo','packages/shared/dist','packages/shared/.tsbuildinfo','packages/examples/dist','packages/examples/.tsbuildinfo','packages/plugins/dist','packages/plugins/.tsbuildinfo','packages/docs/dist','packages/docs/.tsbuildinfo','packages/layout/dist','packages/layout/.tsbuildinfo','coverage']) { await fs.rm(path, { recursive: true, force: true }); } })\""
   },
   "devDependencies": {
     "@types/node": "^24.0.1",

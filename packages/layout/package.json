@@ -1,7 +1,7 @@
 {
-  "name": "@kaiisuuwii/examples",
-  "version": "0.1.0",
-  "private": true,
+  "name": "@kaiisuuwii/layout",
+  "version": "0.2.0",
+  "private": false,
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -16,6 +16,10 @@
       "default": "./dist/index.js"
     }
   },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/",
+    "access": "public"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/KaiSuuWii/react-native-node-graph.git"
@@ -27,21 +31,17 @@
   },
   "keywords": [
     "graph",
-    "examples",
-    "accessibility",
+    "layout",
+    "auto-layout",
     "react-native"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run packages/examples/tests"
+    "test": "vitest run packages/layout/tests",
+    "benchmark": "vitest run packages/layout/benchmarks/layout-benchmark.ts"
   },
   "dependencies": {
-    "@kaiisuuwii/core": "0.1.0",
-    "@kaiisuuwii/layout": "0.2.0",
-    "@kaiisuuwii/plugins": "0.1.0",
-    "@kaiisuuwii/renderer-skia": "0.1.0",
-    "@kaiisuuwii/renderer-svg": "0.1.0",
     "@kaiisuuwii/shared": "0.1.0"
   }
 }

@@ -1,6 +1,6 @@
 import { DEFAULT_NODE_SIZE, type EdgeId, type NodeId } from "@kaiisuuwii/shared";
 
-import { buildExecutionPlan, validateExecutionPlan } from "./execution.js";
+import { buildExecutionPlan, findStronglyConnectedComponents, validateExecutionPlan } from "./execution.js";
 import { createEdgeFactory, createGroupFactory, createNodeFactory, makePortId } from "./ids.js";
 import {
   DEFAULT_ID_SEED,
@@ -33,10 +33,12 @@ import type {
   CoreEventName,
   CoreValidationPolicies,
   CreateCoreEngineOptions,
+  CycleGroup,
   Edge,
   ExecutionCacheEntry,
   ExecutionContext,
   ExecutionInputValue,
+  ExecutionOutputs,
   ExecutionPolicy,
   ExecutionResult,
   ExecutionRunHandle,
@@ -59,6 +61,7 @@ import type {
   NodeTypeDefinition,
   SelectionChangeMode,
   SelectionSnapshot,
+  SteppedExecutionHandle,
   UpdateNodeInput,
   ValidationResult
 } from "./types.js";
@@ -112,13 +115,18 @@ const createCompositeCommand = (label: string, commands: readonly HistoryCommand
 const isGraphDocumentEnvelope = (document: GraphDocument): document is GraphDocumentEnvelope =>
   "version" in document && "graph" in document;
 
-const EXECUTION_POLICY: ExecutionPolicy = {
+const makeExecutionPolicy = (options: CreateCoreEngineOptions): ExecutionPolicy => ({
   graph: "dag",
   ordering: "pull",
   asyncNodes: "await",
   batching: "topological-levels",
-  caching: "node-output"
-};
+  caching: "node-output",
+  allowCycles: options.cyclicExecution?.allowCycles ?? false,
+  maxIterations: options.cyclicExecution?.maxIterations ?? 100,
+  convergenceThreshold: options.cyclicExecution?.convergenceThreshold ?? 0.0001,
+  convergenceMode: options.cyclicExecution?.convergenceMode ?? "absolute",
+  cycleBehavior: options.cyclicExecution?.cycleBehavior ?? "fixed-point"
+});
 
 const stableSerialize = (value: unknown): string => {
   if (value === null || typeof value !== "object") {
@@ -221,6 +229,7 @@ export const createCoreEngine = (options: CreateCoreEngineOptions = {}): CoreEng
     allowSelfLoops: options.allowSelfLoops ?? false,
     allowCycles: options.allowCycles ?? true
   };
+  const EXECUTION_POLICY = makeExecutionPolicy(options);
   const nodeTypes = new Map<string, NodeTypeDefinition>();
   const listeners: {
     [K in CoreEventName]: Set<CoreEventListener<K>>;
@@ -232,7 +241,10 @@ export const createCoreEngine = (options: CreateCoreEngineOptions = {}): CoreEng
     graphLoaded: new Set(),
     selectionChanged: new Set(),
     executionStarted: new Set(),
-    executionCompleted: new Set()
+    executionCompleted: new Set(),
+    executionCycleIteration: new Set(),
+    executionConverged: new Set(),
+    executionDiverged: new Set()
   };
   let api!: CoreEngine;
   let disposed = false;
@@ -904,14 +916,227 @@ export const createCoreEngine = (options: CreateCoreEngineOptions = {}): CoreEng
     }
   };
 
+  const cancelExecution = (eid: string): boolean => {
+    const ctrl = activeExecutions.get(eid);
+
+    if (ctrl === undefined || ctrl.signal.aborted) {
+      return false;
+    }
+
+    ctrl.abort();
+    return true;
+  };
+
+  const computeConvergenceDelta = (
+    oldVal: unknown,
+    newVal: unknown,
+    mode: "absolute" | "relative"
+  ): number => {
+    if (typeof newVal === "number" && typeof oldVal === "number") {
+      if (!Number.isFinite(newVal) || !Number.isFinite(oldVal)) {
+        return Object.is(oldVal, newVal) ? 0 : Infinity;
+      }
+
+      const diff = Math.abs(newVal - oldVal);
+      return mode === "relative" ? diff / Math.max(Math.abs(oldVal), 1) : diff;
+    }
+
+    return oldVal === newVal ? 0 : Infinity;
+  };
+
+  const gatherInputs = (
+    nodeId: NodeId,
+    edgeById: Map<string, { source: NodeId; target: NodeId; sourcePortId?: string; targetPortId?: string; id: string }>,
+    incomingEdgeIds: readonly string[],
+    resolvedOutputs: Map<NodeId, ExecutionOutputs>,
+    runtimeErrors: ExecutionRuntimeError[],
+    skipMissingDeps = false
+  ): { inputs: Record<string, ExecutionInputValue>; upstreamNodeIds: NodeId[]; failed: boolean } => {
+    const inputs: Record<string, ExecutionInputValue> = {};
+    const upstreamNodeIds: NodeId[] = [];
+
+    for (const edgeId of incomingEdgeIds) {
+      const edge = edgeById.get(edgeId);
+
+      if (edge === undefined || edge.targetPortId === undefined || edge.sourcePortId === undefined) {
+        runtimeErrors.push(
+          createExecutionError(
+            "EXECUTION_INPUT_EDGE_INVALID",
+            `Execution edge "${edgeId}" is missing a required port binding`,
+            nodeId,
+            edgeId as EdgeId
+          )
+        );
+        return { inputs, upstreamNodeIds, failed: true };
+      }
+
+      const upstream = resolvedOutputs.get(edge.source);
+
+      if (upstream === undefined) {
+        if (!skipMissingDeps) {
+          runtimeErrors.push(
+            createExecutionError(
+              "EXECUTION_DEPENDENCY_MISSING",
+              `Execution dependency "${edge.source}" was not resolved before "${nodeId}"`,
+              nodeId,
+              edge.id as EdgeId
+            )
+          );
+          return { inputs, upstreamNodeIds, failed: true };
+        }
+
+        inputs[edge.targetPortId] = null;
+        continue;
+      }
+
+      if (!(edge.sourcePortId in upstream)) {
+        if (!skipMissingDeps) {
+          runtimeErrors.push(
+            createExecutionError(
+              "EXECUTION_OUTPUT_MISSING",
+              `Node "${edge.source}" did not produce output "${edge.sourcePortId}" required by "${nodeId}"`,
+              nodeId,
+              edge.id as EdgeId
+            )
+          );
+          return { inputs, upstreamNodeIds, failed: true };
+        }
+
+        inputs[edge.targetPortId] = null;
+        continue;
+      }
+
+      const existing = inputs[edge.targetPortId];
+      const nextValue = upstream[edge.sourcePortId] as ExecutionInputValue;
+      upstreamNodeIds.push(edge.source);
+
+      if (existing === undefined) {
+        inputs[edge.targetPortId] = nextValue;
+      } else if (Array.isArray(existing)) {
+        const existingValues: readonly unknown[] = existing;
+        inputs[edge.targetPortId] = [...existingValues, nextValue] as ExecutionInputValue;
+      } else {
+        inputs[edge.targetPortId] = [existing, nextValue] as ExecutionInputValue;
+      }
+    }
+
+    return { inputs, upstreamNodeIds, failed: false };
+  };
+
+  const runNodeOnce = async (
+    nodeId: NodeId,
+    executionId: string,
+    executionSnapshot: GraphSnapshot,
+    nodeById: Map<NodeId, { type: string; properties: Readonly<Record<string, unknown>>; id: NodeId; ports: readonly { id: string }[] }>,
+    edgeById: Map<string, { source: NodeId; target: NodeId; sourcePortId?: string; targetPortId?: string; id: string }>,
+    incomingEdgeIds: readonly string[],
+    resolvedOutputs: Map<NodeId, ExecutionOutputs>,
+    controller: AbortController,
+    batchIndex: number,
+    orderIndex: number,
+    runtimeErrors: ExecutionRuntimeError[],
+    hitsRef: { value: number },
+    missesRef: { value: number },
+    skipMissingDeps = false
+  ): Promise<ExecutionOutputs | undefined> => {
+    throwIfAborted(controller.signal);
+    const node = nodeById.get(nodeId);
+
+    if (node === undefined) {
+      runtimeErrors.push(
+        createExecutionError("EXECUTION_NODE_MISSING", `Execution node "${nodeId}" is missing`, nodeId)
+      );
+      return undefined;
+    }
+
+    const definition = nodeTypes.get(node.type)?.execution;
+
+    if (definition === undefined) {
+      runtimeErrors.push(
+        createExecutionError(
+          "EXECUTION_HANDLER_MISSING",
+          `Node "${node.id}" does not define an execution handler`,
+          node.id
+        )
+      );
+      return undefined;
+    }
+
+    const { inputs, upstreamNodeIds, failed } = gatherInputs(
+      nodeId,
+      edgeById,
+      incomingEdgeIds,
+      resolvedOutputs,
+      runtimeErrors,
+      skipMissingDeps
+    );
+
+    if (failed) {
+      return undefined;
+    }
+
+    const signature = stableSerialize({
+      type: node.type,
+      properties: node.properties,
+      inputs
+    });
+    const cached = executionCache.get(nodeId);
+
+    if (cached !== undefined && cached.signature === signature) {
+      hitsRef.value += 1;
+      return cached.outputs;
+    }
+
+    missesRef.value += 1;
+
+    const context: ExecutionContext = {
+      executionId,
+      node: node as Parameters<typeof definition.execute>[0]["node"],
+      graph: executionSnapshot,
+      batchIndex,
+      orderIndex,
+      inputs,
+      properties: node.properties,
+      signal: controller.signal,
+      engine: api,
+      policy: EXECUTION_POLICY,
+      getCachedOutput: (requestedNodeId) => executionCache.get(requestedNodeId)
+    };
+
+    const outputs = await definition.execute(context);
+    throwIfAborted(controller.signal);
+    const normalizedOutputs = { ...(outputs ?? {}) };
+
+    executionCache.set(nodeId, {
+      nodeId,
+      signature,
+      outputs: normalizedOutputs,
+      upstreamNodeIds: [...new Set(upstreamNodeIds)].sort(),
+      updatedAtExecutionId: executionId
+    });
+
+    return normalizedOutputs;
+  };
+
+  const buildAcyclicNodeResults = (
+    nodeId: NodeId,
+    outputs: ExecutionOutputs,
+    batchIndex: number,
+    orderIndex: number,
+    inputs: Record<string, ExecutionInputValue>,
+    cached: boolean
+  ): ExecutionResult["nodeResults"][string] => ({
+    nodeId,
+    batchIndex,
+    orderIndex,
+    status: cached ? "cached" : "executed",
+    inputs,
+    outputs
+  });
+
   const executeGraph = (executionOptions: Parameters<CoreEngine["execute"]>[0] = {}): ExecutionRunHandle => {
     ensureEngineActive(disposed);
     const executionSnapshot = snapshot();
-    const executionValidation = validateExecutionPlan(
-      executionSnapshot,
-      nodeTypes,
-      executionOptions.targetNodeIds
-    );
     const startedAtIso = createExecutionTimestamp();
     const executionId = createExecutionId((executionSequence += 1));
     const controller = new AbortController();
@@ -926,242 +1151,543 @@ export const createCoreEngine = (options: CreateCoreEngineOptions = {}): CoreEng
       });
     }
 
-    if (!executionValidation.isValid) {
-      const result: ExecutionResult = {
-        executionId,
-        status: "failed",
-        policy: EXECUTION_POLICY,
-        nodeOrder: [],
-        batches: [],
-        nodeResults: {},
-        errors: executionValidation.errors.map((error) =>
-          createExecutionError(error.code, error.message, error.entityId as NodeId | undefined)
-        ),
-        cacheStats: {
-          hits: 0,
-          misses: 0,
-          invalidatedNodeIds
-        },
-        startedAtIso,
-        completedAtIso: createExecutionTimestamp()
-      };
+    const makeEarlyFailResult = (errors: ExecutionRuntimeError[]): ExecutionResult => ({
+      executionId,
+      status: "failed",
+      policy: EXECUTION_POLICY,
+      nodeOrder: [],
+      batches: [],
+      nodeResults: {},
+      errors,
+      cacheStats: { hits: 0, misses: 0, invalidatedNodeIds },
+      startedAtIso,
+      completedAtIso: createExecutionTimestamp(),
+      iterationsRun: 0,
+      converged: true,
+      cycleGroups: []
+    });
 
-      emit("executionCompleted", {
-        result,
+    if (!EXECUTION_POLICY.allowCycles) {
+      // --- Acyclic path (original behavior) ---
+      const executionValidation = validateExecutionPlan(
+        executionSnapshot,
+        nodeTypes,
+        executionOptions.targetNodeIds
+      );
+
+      if (!executionValidation.isValid) {
+        const result = makeEarlyFailResult(
+          executionValidation.errors.map((error) =>
+            createExecutionError(error.code, error.message, error.entityId as NodeId | undefined)
+          )
+        );
+        emit("executionCompleted", { result, graph: executionSnapshot });
+        return { executionId, cancel: () => false, result: Promise.resolve(result) };
+      }
+
+      const { plan } = buildExecutionPlan(executionSnapshot, executionOptions.targetNodeIds);
+
+      if (plan === undefined) {
+        const result = makeEarlyFailResult([
+          createExecutionError("EXECUTION_PLAN_MISSING", "Execution plan could not be created")
+        ]);
+        emit("executionCompleted", { result, graph: executionSnapshot });
+        return { executionId, cancel: () => false, result: Promise.resolve(result) };
+      }
+
+      activeExecutions.set(executionId, controller);
+      emit("executionStarted", {
+        executionId,
+        nodeIds: plan.nodeOrder,
+        batches: plan.batches,
+        policy: EXECUTION_POLICY,
         graph: executionSnapshot
       });
 
-      return {
-        executionId,
-        cancel: () => false,
-        result: Promise.resolve(result)
-      };
+      const result = (async (): Promise<ExecutionResult> => {
+        const nodeById = new Map(executionSnapshot.nodes.map((n) => [n.id, n]));
+        const edgeById = new Map(executionSnapshot.edges.map((e) => [e.id, e]));
+        const nodeResults: Record<string, ExecutionResult["nodeResults"][string]> = {};
+        const runtimeErrors: ExecutionRuntimeError[] = [];
+        const hitsRef = { value: 0 };
+        const missesRef = { value: 0 };
+        const resolvedOutputs = new Map<NodeId, ExecutionOutputs>();
+
+        const executeOne = async (nId: NodeId, batchIdx: number, orderIdx: number): Promise<void> => {
+          const outputs = await runNodeOnce(
+            nId, executionId, executionSnapshot, nodeById, edgeById,
+            plan.incomingByNodeId[nId] ?? [],
+            resolvedOutputs, controller, batchIdx, orderIdx, runtimeErrors,
+            hitsRef, missesRef
+          );
+
+          if (outputs !== undefined) {
+            resolvedOutputs.set(nId, outputs);
+            const cached = executionCache.get(nId);
+            const inputs: Record<string, ExecutionInputValue> = {};
+
+            for (const edgeId of plan.incomingByNodeId[nId] ?? []) {
+              const edge = edgeById.get(edgeId);
+
+              if (edge?.targetPortId !== undefined && edge.sourcePortId !== undefined) {
+                const up = resolvedOutputs.get(edge.source);
+
+                if (up !== undefined && edge.sourcePortId in up) {
+                  inputs[edge.targetPortId] = up[edge.sourcePortId] as ExecutionInputValue;
+                }
+              }
+            }
+
+            nodeResults[nId] = buildAcyclicNodeResults(
+              nId, outputs, batchIdx, orderIdx, inputs,
+              cached !== undefined && cached.signature === stableSerialize({ type: nodeById.get(nId)?.type, properties: nodeById.get(nId)?.properties, inputs })
+            );
+          }
+        };
+
+        let status: ExecutionStatus = "completed";
+
+        try {
+          for (const batch of plan.batches) {
+            throwIfAborted(controller.signal);
+            await Promise.all(batch.nodeIds.map((nId, oi) => executeOne(nId, batch.index, oi)));
+
+            if (runtimeErrors.length > 0) {
+              status = "failed";
+              break;
+            }
+          }
+        } catch (error) {
+          status = isAbortError(error) ? "cancelled" : "failed";
+
+          if (!isAbortError(error)) {
+            runtimeErrors.push(
+              createExecutionError(
+                "EXECUTION_RUNTIME_ERROR",
+                error instanceof Error ? error.message : String(error)
+              )
+            );
+          }
+        } finally {
+          activeExecutions.delete(executionId);
+        }
+
+        const finalResult: ExecutionResult = {
+          executionId,
+          status,
+          policy: EXECUTION_POLICY,
+          nodeOrder: plan.nodeOrder,
+          batches: plan.batches,
+          nodeResults,
+          errors: runtimeErrors,
+          cacheStats: { hits: hitsRef.value, misses: missesRef.value, invalidatedNodeIds },
+          startedAtIso,
+          completedAtIso: createExecutionTimestamp(),
+          iterationsRun: 0,
+          converged: true,
+          cycleGroups: []
+        };
+
+        emit("executionCompleted", { result: finalResult, graph: executionSnapshot });
+        return finalResult;
+      })();
+
+      return { executionId, cancel: () => cancelExecution(executionId), result };
     }
 
-    const { plan } = buildExecutionPlan(executionSnapshot, executionOptions.targetNodeIds);
+    // --- Cyclic path ---
+    const allNodeIds = executionSnapshot.nodes.map((n) => n.id);
+    const cycleGroups = findStronglyConnectedComponents(allNodeIds, executionSnapshot.edges, policies.allowSelfLoops);
 
-    if (plan === undefined) {
-      const result: ExecutionResult = {
-        executionId,
-        status: "failed",
-        policy: EXECUTION_POLICY,
-        nodeOrder: [],
-        batches: [],
-        nodeResults: {},
-        errors: [createExecutionError("EXECUTION_PLAN_MISSING", "Execution plan could not be created")],
-        cacheStats: {
-          hits: 0,
-          misses: 0,
-          invalidatedNodeIds
-        },
-        startedAtIso,
-        completedAtIso: createExecutionTimestamp()
-      };
+    const nodeToCycleGroup = new Map<NodeId, number>();
+    cycleGroups.forEach((g, i) => {
+      for (const nId of g.nodeIds) {
+        nodeToCycleGroup.set(nId, i);
+      }
+    });
 
-      emit("executionCompleted", {
-        result,
-        graph: executionSnapshot
-      });
+    type SuperId = string;
 
-      return {
-        executionId,
-        cancel: () => false,
-        result: Promise.resolve(result)
-      };
+    const getSuperNodeId = (nodeId: NodeId): SuperId => {
+      const gi = nodeToCycleGroup.get(nodeId);
+      return gi !== undefined ? `cyclic:${gi}` : `singleton:${nodeId}`;
+    };
+
+    const superNodeSet = new Set<SuperId>();
+
+    for (const nId of allNodeIds) {
+      superNodeSet.add(getSuperNodeId(nId));
+    }
+
+    const superAdj = new Map<SuperId, Set<SuperId>>();
+
+    for (const sid of superNodeSet) {
+      superAdj.set(sid, new Set());
+    }
+
+    for (const edge of executionSnapshot.edges) {
+      const srcSid = getSuperNodeId(edge.source);
+      const tgtSid = getSuperNodeId(edge.target);
+
+      if (srcSid !== tgtSid) {
+        superAdj.get(srcSid)?.add(tgtSid);
+      }
+    }
+
+    const superIndegree = new Map<SuperId, number>();
+
+    for (const sid of superNodeSet) {
+      superIndegree.set(sid, 0);
+    }
+
+    for (const [, neighbors] of superAdj) {
+      for (const n of neighbors) {
+        superIndegree.set(n, (superIndegree.get(n) ?? 0) + 1);
+      }
+    }
+
+    const superOrder: SuperId[] = [];
+    const readyQueue: SuperId[] = [...superNodeSet]
+      .filter((sid) => (superIndegree.get(sid) ?? 0) === 0)
+      .sort();
+
+    while (readyQueue.length > 0) {
+      const sid = readyQueue.shift()!;
+      superOrder.push(sid);
+
+      for (const neighbor of [...(superAdj.get(sid) ?? [])].sort()) {
+        const newDeg = (superIndegree.get(neighbor) ?? 0) - 1;
+        superIndegree.set(neighbor, newDeg);
+
+        if (newDeg === 0) {
+          readyQueue.push(neighbor);
+          readyQueue.sort();
+        }
+      }
+    }
+
+    const incomingByNodeId = new Map<NodeId, string[]>();
+
+    for (const nId of allNodeIds) {
+      incomingByNodeId.set(nId, []);
+    }
+
+    for (const edge of executionSnapshot.edges) {
+      incomingByNodeId.get(edge.target)?.push(edge.id);
     }
 
     activeExecutions.set(executionId, controller);
     emit("executionStarted", {
       executionId,
-      nodeIds: plan.nodeOrder,
-      batches: plan.batches,
+      nodeIds: allNodeIds,
+      batches: [],
       policy: EXECUTION_POLICY,
       graph: executionSnapshot
     });
 
-    const result = (async (): Promise<ExecutionResult> => {
-      const nodeById = new Map(executionSnapshot.nodes.map((node) => [node.id, node]));
-      const edgeById = new Map(executionSnapshot.edges.map((edge) => [edge.id, edge]));
+    const isStepped = EXECUTION_POLICY.cycleBehavior === "stepped";
+
+    if (isStepped) {
+      // Stepped execution handle
+      const nodeById = new Map(executionSnapshot.nodes.map((n) => [n.id, n]));
+      const edgeById = new Map(executionSnapshot.edges.map((e) => [e.id, e]));
       const nodeResults: Record<string, ExecutionResult["nodeResults"][string]> = {};
       const runtimeErrors: ExecutionRuntimeError[] = [];
-      let hits = 0;
-      let misses = 0;
+      const hitsRef = { value: 0 };
+      const missesRef = { value: 0 };
+      const resolvedOutputs = new Map<NodeId, ExecutionOutputs>();
+      let totalIterationsRun = 0;
+      let allConverged = true;
 
-      const executeNode = async (
-        nodeId: NodeId,
-        batchIndex: number,
-        orderIndex: number
-      ): Promise<void> => {
-        throwIfAborted(controller.signal);
-        const node = nodeById.get(nodeId);
+      let superOrderIdx = 0;
+      let cycleGroupIterState = new Map<number, { prevOutputs: Map<NodeId, ExecutionOutputs>; iteration: number; converged: boolean }>();
+      let resultPromiseResolve: ((r: ExecutionResult) => void) = () => undefined;
+      const resultPromise = new Promise<ExecutionResult>((resolve) => {
+        resultPromiseResolve = resolve;
+      });
 
-        if (node === undefined) {
-          runtimeErrors.push(
-            createExecutionError("EXECUTION_NODE_MISSING", `Execution node "${nodeId}" is missing`, nodeId)
+      const buildFinalResult = (status: ExecutionStatus): ExecutionResult => ({
+        executionId,
+        status,
+        policy: EXECUTION_POLICY,
+        nodeOrder: allNodeIds,
+        batches: [],
+        nodeResults,
+        errors: runtimeErrors,
+        cacheStats: { hits: hitsRef.value, misses: missesRef.value, invalidatedNodeIds },
+        startedAtIso,
+        completedAtIso: createExecutionTimestamp(),
+        iterationsRun: totalIterationsRun,
+        converged: allConverged,
+        cycleGroups
+      });
+
+      const step = async (): Promise<{ readonly done: boolean; readonly result?: ExecutionResult }> => {
+        if (controller.signal.aborted) {
+          const r = buildFinalResult("cancelled");
+          activeExecutions.delete(executionId);
+          emit("executionCompleted", { result: r, graph: executionSnapshot });
+          resultPromiseResolve(r);
+          return { done: true, result: r };
+        }
+
+        if (superOrderIdx >= superOrder.length) {
+          const r = buildFinalResult(runtimeErrors.length > 0 ? "failed" : "completed");
+          activeExecutions.delete(executionId);
+          emit("executionCompleted", { result: r, graph: executionSnapshot });
+          resultPromiseResolve(r);
+          return { done: true, result: r };
+        }
+
+        const sid = superOrder[superOrderIdx]!;
+
+        if (sid.startsWith("singleton:")) {
+          const nId = sid.slice("singleton:".length) as NodeId;
+          const outputs = await runNodeOnce(
+            nId, executionId, executionSnapshot, nodeById, edgeById,
+            incomingByNodeId.get(nId) ?? [],
+            resolvedOutputs, controller, 0, 0, runtimeErrors, hitsRef, missesRef
           );
-          return;
+
+          if (outputs !== undefined) {
+            resolvedOutputs.set(nId, outputs);
+            nodeResults[nId] = { nodeId: nId, batchIndex: 0, orderIndex: 0, status: "executed", inputs: {}, outputs };
+          }
+
+          superOrderIdx++;
+          return { done: false };
         }
 
-        const definition = nodeTypes.get(node.type)?.execution;
+        // cyclic super-node
+        const groupIdx = parseInt(sid.slice("cyclic:".length), 10);
+        const group = cycleGroups[groupIdx]!;
 
-        if (definition === undefined) {
-          runtimeErrors.push(
-            createExecutionError(
-              "EXECUTION_HANDLER_MISSING",
-              `Node "${node.id}" does not define an execution handler`,
-              node.id
-            )
+        if (!cycleGroupIterState.has(groupIdx)) {
+          cycleGroupIterState.set(groupIdx, { prevOutputs: new Map(), iteration: 0, converged: false });
+        }
+
+        const state = cycleGroupIterState.get(groupIdx)!;
+
+        if (state.converged || state.iteration >= EXECUTION_POLICY.maxIterations) {
+          superOrderIdx++;
+          for (const nId of group.nodeIds) {
+            const out = resolvedOutputs.get(nId);
+            if (out !== undefined && nodeResults[nId] === undefined) {
+              nodeResults[nId] = { nodeId: nId, batchIndex: 0, orderIndex: 0, status: "executed", inputs: {}, outputs: out };
+            }
+          }
+          return { done: false };
+        }
+
+        state.iteration++;
+        const iterIdx = state.iteration;
+        const prevIterOutputs = new Map(state.prevOutputs);
+
+        // Execute all nodes in group for one iteration
+        for (const nId of group.nodeIds) {
+          const combinedOutputs = new Map([...resolvedOutputs, ...prevIterOutputs]);
+          const outputs = await runNodeOnce(
+            nId, executionId, executionSnapshot, nodeById, edgeById,
+            incomingByNodeId.get(nId) ?? [],
+            combinedOutputs, controller, 0, 0, runtimeErrors, hitsRef, missesRef, true
           );
-          return;
-        }
 
-        const inputs: Record<string, ExecutionContext["inputs"][string]> = {};
-        const upstreamNodeIds: NodeId[] = [];
-
-        for (const edgeId of plan.incomingByNodeId[nodeId] ?? []) {
-          const edge = edgeById.get(edgeId);
-
-          if (edge === undefined || edge.targetPortId === undefined || edge.sourcePortId === undefined) {
-            runtimeErrors.push(
-              createExecutionError(
-                "EXECUTION_INPUT_EDGE_INVALID",
-                `Execution edge "${edgeId}" is missing a required port binding`,
-                node.id,
-                edgeId
-              )
-            );
-            return;
-          }
-
-          const upstream = nodeResults[edge.source];
-
-          if (upstream === undefined) {
-            runtimeErrors.push(
-              createExecutionError(
-                "EXECUTION_DEPENDENCY_MISSING",
-                `Execution dependency "${edge.source}" was not resolved before "${node.id}"`,
-                node.id,
-                edge.id
-              )
-            );
-            return;
-          }
-
-          if (!(edge.sourcePortId in upstream.outputs)) {
-            runtimeErrors.push(
-              createExecutionError(
-                "EXECUTION_OUTPUT_MISSING",
-                `Node "${edge.source}" did not produce output "${edge.sourcePortId}" required by "${node.id}"`,
-                node.id,
-                edge.id
-              )
-            );
-            return;
-          }
-
-          const existing = inputs[edge.targetPortId];
-          const nextValue = upstream.outputs[edge.sourcePortId] as ExecutionInputValue;
-          upstreamNodeIds.push(edge.source);
-
-          if (existing === undefined) {
-            inputs[edge.targetPortId] = nextValue;
-          } else if (Array.isArray(existing)) {
-            const existingValues: readonly unknown[] = existing;
-            inputs[edge.targetPortId] = [...existingValues, nextValue] as ExecutionInputValue;
-          } else {
-            inputs[edge.targetPortId] = [existing, nextValue] as ExecutionInputValue;
+          if (outputs !== undefined) {
+            resolvedOutputs.set(nId, outputs);
           }
         }
 
-        const signature = stableSerialize({
-          type: node.type,
-          properties: node.properties,
-          inputs
+        let maxDelta = 0;
+
+        for (const nId of group.nodeIds) {
+          const prev = prevIterOutputs.get(nId) ?? {};
+          const curr = resolvedOutputs.get(nId) ?? {};
+
+          for (const [key, newVal] of Object.entries(curr)) {
+            const delta = computeConvergenceDelta(prev[key], newVal, EXECUTION_POLICY.convergenceMode);
+            maxDelta = Math.max(maxDelta, delta);
+          }
+        }
+
+        totalIterationsRun++;
+        state.prevOutputs = new Map(resolvedOutputs);
+
+        emit("executionCycleIteration", {
+          runId: executionId,
+          groupIndex: groupIdx,
+          iteration: iterIdx,
+          maxDelta,
+          nodeIds: group.nodeIds
         });
-        const cached = executionCache.get(nodeId);
 
-        if (cached !== undefined && cached.signature === signature) {
-          hits += 1;
-          nodeResults[nodeId] = {
-            nodeId,
-            batchIndex,
-            orderIndex,
-            status: "cached",
-            inputs,
-            outputs: cached.outputs
-          };
-          return;
+        if (maxDelta < EXECUTION_POLICY.convergenceThreshold) {
+          state.converged = true;
+          emit("executionConverged", { runId: executionId, groupIndex: groupIdx, iterations: iterIdx, finalDelta: maxDelta });
+          superOrderIdx++;
+
+          for (const nId of group.nodeIds) {
+            const out = resolvedOutputs.get(nId);
+            if (out !== undefined) {
+              nodeResults[nId] = { nodeId: nId, batchIndex: 0, orderIndex: 0, status: "executed", inputs: {}, outputs: out };
+            }
+          }
+        } else if (iterIdx >= EXECUTION_POLICY.maxIterations) {
+          allConverged = false;
+          emit("executionDiverged", { runId: executionId, groupIndex: groupIdx, iterations: iterIdx, lastDelta: maxDelta });
+          superOrderIdx++;
+
+          for (const nId of group.nodeIds) {
+            const out = resolvedOutputs.get(nId);
+            if (out !== undefined) {
+              nodeResults[nId] = { nodeId: nId, batchIndex: 0, orderIndex: 0, status: "executed", inputs: {}, outputs: out };
+            }
+          }
         }
 
-        misses += 1;
+        if (superOrderIdx >= superOrder.length) {
+          const r = buildFinalResult(runtimeErrors.length > 0 ? "failed" : "completed");
+          activeExecutions.delete(executionId);
+          emit("executionCompleted", { result: r, graph: executionSnapshot });
+          resultPromiseResolve(r);
+          return { done: true, result: r };
+        }
 
-        const context: ExecutionContext = {
-          executionId,
-          node,
-          graph: executionSnapshot,
-          batchIndex,
-          orderIndex,
-          inputs,
-          properties: node.properties,
-          signal: controller.signal,
-          engine: api,
-          policy: EXECUTION_POLICY,
-          getCachedOutput: (requestedNodeId) => executionCache.get(requestedNodeId)
-        };
-
-        const outputs = await definition.execute(context);
-        throwIfAborted(controller.signal);
-        const normalizedOutputs = { ...(outputs ?? {}) };
-
-        executionCache.set(nodeId, {
-          nodeId,
-          signature,
-          outputs: normalizedOutputs,
-          upstreamNodeIds: [...new Set(upstreamNodeIds)].sort(),
-          updatedAtExecutionId: executionId
-        });
-        nodeResults[nodeId] = {
-          nodeId,
-          batchIndex,
-          orderIndex,
-          status: "executed",
-          inputs,
-          outputs: normalizedOutputs
-        };
+        return { done: false };
       };
 
+      const handle: SteppedExecutionHandle = {
+        executionId,
+        cancel: () => cancelExecution(executionId),
+        result: resultPromise,
+        step
+      };
+
+      return handle;
+    }
+
+    // Fixed-point cyclic execution
+    const result = (async (): Promise<ExecutionResult> => {
+      const nodeById = new Map(executionSnapshot.nodes.map((n) => [n.id, n]));
+      const edgeById = new Map(executionSnapshot.edges.map((e) => [e.id, e]));
+      const nodeResults: Record<string, ExecutionResult["nodeResults"][string]> = {};
+      const runtimeErrors: ExecutionRuntimeError[] = [];
+      const hitsRef = { value: 0 };
+      const missesRef = { value: 0 };
+      const resolvedOutputs = new Map<NodeId, ExecutionOutputs>();
+      let totalIterationsRun = 0;
+      let allConverged = true;
       let status: ExecutionStatus = "completed";
 
       try {
-        for (const batch of plan.batches) {
+        for (const sid of superOrder) {
           throwIfAborted(controller.signal);
-          await Promise.all(
-            batch.nodeIds.map((nodeId, orderIndex) => executeNode(nodeId, batch.index, orderIndex))
-          );
 
-          if (runtimeErrors.length > 0) {
-            status = "failed";
+          if (sid.startsWith("singleton:")) {
+            const nId = sid.slice("singleton:".length) as NodeId;
+            const outputs = await runNodeOnce(
+              nId, executionId, executionSnapshot, nodeById, edgeById,
+              incomingByNodeId.get(nId) ?? [],
+              resolvedOutputs, controller, 0, 0, runtimeErrors, hitsRef, missesRef
+            );
+
+            if (outputs !== undefined) {
+              resolvedOutputs.set(nId, outputs);
+              nodeResults[nId] = { nodeId: nId, batchIndex: 0, orderIndex: 0, status: "executed", inputs: {}, outputs };
+            }
+
+            if (runtimeErrors.length > 0) {
+              status = "failed";
+              break;
+            }
+
+            continue;
+          }
+
+          const groupIdx = parseInt(sid.slice("cyclic:".length), 10);
+          const group = cycleGroups[groupIdx]!;
+          let groupConverged = false;
+          let lastDelta = Infinity;
+          const prevCycleOutputs = new Map<NodeId, ExecutionOutputs>();
+
+          for (const nId of group.nodeIds) {
+            const cached = executionCache.get(nId);
+            if (cached !== undefined) {
+              prevCycleOutputs.set(nId, cached.outputs);
+              resolvedOutputs.set(nId, cached.outputs);
+            }
+          }
+
+          for (let iter = 1; iter <= EXECUTION_POLICY.maxIterations; iter++) {
+            throwIfAborted(controller.signal);
+            const prevIterOutputs = new Map(prevCycleOutputs);
+
+            for (const nId of group.nodeIds) {
+              const combinedOutputs = new Map([...resolvedOutputs, ...prevIterOutputs]);
+              const outputs = await runNodeOnce(
+                nId, executionId, executionSnapshot, nodeById, edgeById,
+                incomingByNodeId.get(nId) ?? [],
+                combinedOutputs, controller, 0, 0, runtimeErrors, hitsRef, missesRef, true
+              );
+
+              if (outputs !== undefined) {
+                resolvedOutputs.set(nId, outputs);
+                prevCycleOutputs.set(nId, outputs);
+              }
+            }
+
+            if (runtimeErrors.length > 0) {
+              status = "failed";
+              break;
+            }
+
+            let maxDelta = 0;
+
+            for (const nId of group.nodeIds) {
+              const prev = prevIterOutputs.get(nId) ?? {};
+              const curr = resolvedOutputs.get(nId) ?? {};
+
+              for (const [key, newVal] of Object.entries(curr)) {
+                const delta = computeConvergenceDelta(prev[key], newVal, EXECUTION_POLICY.convergenceMode);
+                maxDelta = Math.max(maxDelta, delta);
+              }
+            }
+
+            lastDelta = maxDelta;
+            totalIterationsRun++;
+
+            emit("executionCycleIteration", {
+              runId: executionId,
+              groupIndex: groupIdx,
+              iteration: iter,
+              maxDelta,
+              nodeIds: group.nodeIds
+            });
+
+            if (maxDelta < EXECUTION_POLICY.convergenceThreshold) {
+              groupConverged = true;
+              emit("executionConverged", { runId: executionId, groupIndex: groupIdx, iterations: iter, finalDelta: maxDelta });
+              break;
+            }
+
+            if (iter === EXECUTION_POLICY.maxIterations) {
+              allConverged = false;
+              emit("executionDiverged", { runId: executionId, groupIndex: groupIdx, iterations: iter, lastDelta: maxDelta });
+            }
+          }
+
+          if (status === "failed") {
             break;
+          }
+
+          void groupConverged;
+          void lastDelta;
+
+          for (const nId of group.nodeIds) {
+            const out = resolvedOutputs.get(nId);
+
+            if (out !== undefined) {
+              nodeResults[nId] = { nodeId: nId, batchIndex: 0, orderIndex: 0, status: "executed", inputs: {}, outputs: out };
+            }
           }
         }
       } catch (error) {
@@ -1183,41 +1709,23 @@ export const createCoreEngine = (options: CreateCoreEngineOptions = {}): CoreEng
         executionId,
         status,
         policy: EXECUTION_POLICY,
-        nodeOrder: plan.nodeOrder,
-        batches: plan.batches,
+        nodeOrder: allNodeIds,
+        batches: [],
         nodeResults,
         errors: runtimeErrors,
-        cacheStats: {
-          hits,
-          misses,
-          invalidatedNodeIds
-        },
+        cacheStats: { hits: hitsRef.value, misses: missesRef.value, invalidatedNodeIds },
         startedAtIso,
-        completedAtIso: createExecutionTimestamp()
+        completedAtIso: createExecutionTimestamp(),
+        iterationsRun: totalIterationsRun,
+        converged: allConverged,
+        cycleGroups
       };
 
-      emit("executionCompleted", {
-        result: finalResult,
-        graph: executionSnapshot
-      });
-
+      emit("executionCompleted", { result: finalResult, graph: executionSnapshot });
       return finalResult;
     })();
 
-    return {
-      executionId,
-      cancel: () => {
-        const activeExecution = activeExecutions.get(executionId);
-
-        if (activeExecution === undefined || activeExecution.signal.aborted) {
-          return false;
-        }
-
-        activeExecution.abort();
-        return true;
-      },
-      result
-    };
+    return { executionId, cancel: () => cancelExecution(executionId), result };
   };
 
   for (const definition of options.nodeTypes ?? []) {

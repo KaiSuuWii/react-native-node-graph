@@ -9,23 +9,8 @@
   "references": [
     {
       "path": "../shared"
-    },
-    {
-      "path": "../core"
-    },
-    {
-      "path": "../renderer-skia"
-    },
-    {
-      "path": "../renderer-svg"
-    },
-    {
-      "path": "../plugins"
-    },
-    {
-      "path": "../layout"
     }
   ],
   "include": ["src/**/*.ts"],
-  "exclude": ["tests", "dist"]
+  "exclude": ["tests", "benchmarks", "dist"]
 }

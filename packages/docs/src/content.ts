@@ -4,6 +4,8 @@ export interface DocumentationSection {
     | "package-boundaries"
     | "core-api"
     | "renderer-api"
+    | "svg-renderer"
+    | "cyclic-execution"
     | "plugin-authoring"
     | "serialization-policy"
     | "contributor-guide"
@@ -45,6 +47,22 @@ export const documentationSections: readonly DocumentationSection[] = [
       "Renderer packages consume graph snapshots and return scene plans with theme, debug, virtualization, and accessibility state.",
     content:
       "The renderer-skia package resolves light and dark themes, runtime scale changes, hit testing, and deterministic scene diagnostics. The accessibility surface lives in scene.accessibility so host apps can drive focus and screen reader behavior without reimplementing graph traversal. Developer overlays are additive renderer plugins instead of core mutations."
+  },
+  {
+    id: "svg-renderer",
+    title: "SVG Renderer",
+    summary:
+      "The renderer-svg package converts graph snapshots to a typed element-tree plan and optionally serializes it to a valid SVG string.",
+    content:
+      "Call createSvgRenderPlan with a snapshot, viewport, and optional camera, theme, plugins, and accessibility options. The result is an SvgRenderPlan containing eight layers (background, grid, group, edge, node, selection, plugin, debug), a viewBox string, and diagnostics. Pass the plan to serializeSvgRenderPlan to obtain a well-formed SVG string suitable for server-side rendering or static file export. Theming follows the same light and dark model as renderer-skia via resolveSvgTheme. Viewport culling is enabled by default and can be tuned through SvgVirtualizationOptions."
+  },
+  {
+    id: "cyclic-execution",
+    title: "Cyclic Execution",
+    summary:
+      "Core can now run opt-in cyclic graphs through fixed-point iteration and stepped execution handles.",
+    content:
+      "Set allowCycles and cyclicExecution on createCoreEngine to enable strongly connected component scheduling. Fixed-point execution reports iterationsRun, converged, and cycleGroups on the final result, and emits executionCycleIteration, executionConverged, and executionDiverged events while each cycle group runs. For interactive tooling, set cycleBehavior to stepped and advance the returned handle with step() until done."
   },
   {
     id: "plugin-authoring",

@@ -11,6 +11,9 @@
       "path": "../renderer-skia/tsconfig.build.json"
     },
     {
+      "path": "../renderer-svg/tsconfig.build.json"
+    },
+    {
       "path": "../plugins/tsconfig.build.json"
     },
     {

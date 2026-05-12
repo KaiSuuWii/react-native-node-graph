@@ -388,13 +388,253 @@ export const FOUNDATION_EXAMPLE_DOCUMENT = PLUGIN_EXAMPLE_DOCUMENT;
 export const createFoundationExampleSnapshot = (): GraphSnapshot =>
   FOUNDATION_EXAMPLE_DOCUMENT.graph;
 
+export const SVG_STATIC_EXPORT_DOCUMENT = createDocument(
+  "graph_example_svg_export",
+  "SVG Static Export Fixture",
+  ["svg", "export", "static"],
+  {
+    id: "graph_example_svg_export",
+    metadata: {
+      name: "SVG Static Export Fixture",
+      version: "0.1.0",
+      tags: [],
+      createdAtIso: "2026-05-11T00:00:00.000Z"
+    },
+    nodes: [
+      {
+        id: "node_svg_source",
+        type: "number",
+        position: vec2(80, 160),
+        dimensions: vec2(220, 96),
+        label: "Source",
+        properties: { value: 42 },
+        ports: [
+          {
+            id: "port_svg_source_out",
+            name: "value",
+            direction: "output" as const,
+            dataType: "number"
+          }
+        ]
+      },
+      {
+        id: "node_svg_transform",
+        type: "math",
+        position: vec2(380, 100),
+        dimensions: vec2(240, 112),
+        label: "Transform",
+        properties: { bias: 1 },
+        ports: [
+          {
+            id: "port_svg_transform_in",
+            name: "input",
+            direction: "input" as const,
+            dataType: "number"
+          },
+          {
+            id: "port_svg_transform_out",
+            name: "result",
+            direction: "output" as const,
+            dataType: "number"
+          }
+        ]
+      },
+      {
+        id: "node_svg_sink",
+        type: "display",
+        position: vec2(700, 160),
+        dimensions: vec2(200, 88),
+        label: "Output",
+        properties: {},
+        ports: [
+          {
+            id: "port_svg_sink_in",
+            name: "input",
+            direction: "input" as const,
+            dataType: "number"
+          }
+        ]
+      }
+    ],
+    edges: [
+      {
+        id: "edge_svg_source_transform",
+        source: "node_svg_source",
+        target: "node_svg_transform",
+        sourcePortId: "port_svg_source_out",
+        targetPortId: "port_svg_transform_in",
+        dataType: "number"
+      },
+      {
+        id: "edge_svg_transform_sink",
+        source: "node_svg_transform",
+        target: "node_svg_sink",
+        sourcePortId: "port_svg_transform_out",
+        targetPortId: "port_svg_sink_in",
+        dataType: "number"
+      }
+    ],
+    groups: [
+      {
+        id: "group_svg_pipeline",
+        name: "SVG Pipeline",
+        nodeIds: ["node_svg_source", "node_svg_transform", "node_svg_sink"]
+      }
+    ],
+    selection: {
+      nodeIds: ["node_svg_transform"],
+      edgeIds: [],
+      groupIds: [],
+      activeSelectionMode: "node"
+    }
+  }
+);
+
+// 20-node grid graph with all positions at origin — intended for auto-layout demos
+export const LAYOUT_DEMO_DOCUMENT = createDocument(
+  "graph_example_layout_demo",
+  "Layout Demo Fixture",
+  ["layout", "auto-layout", "demo"],
+  {
+    id: "graph_example_layout_demo",
+    metadata: {
+      name: "Layout Demo Fixture",
+      version: "0.2.0",
+      tags: [],
+      createdAtIso: "2026-05-12T00:00:00.000Z"
+    },
+    nodes: Array.from({ length: 20 }, (_, i) => ({
+      id: `node_layout_${i}` as const,
+      type: i === 0 ? "number" : i === 19 ? "display" : "math",
+      position: vec2(0, 0),
+      dimensions: vec2(180, 80),
+      label: `Node ${i}`,
+      ports:
+        i === 0
+          ? [{ id: `port_layout_${i}_out`, name: "out", direction: "output" as const, dataType: "number" }]
+          : i === 19
+            ? [{ id: `port_layout_${i}_in`, name: "in", direction: "input" as const, dataType: "number" }]
+            : [
+                { id: `port_layout_${i}_in`, name: "in", direction: "input" as const, dataType: "number" },
+                { id: `port_layout_${i}_out`, name: "out", direction: "output" as const, dataType: "number" }
+              ]
+    })),
+    edges: Array.from({ length: 19 }, (_, i) => ({
+      id: `edge_layout_${i}` as const,
+      source: `node_layout_${i}` as const,
+      target: `node_layout_${i + 1}` as const,
+      sourcePortId: `port_layout_${i}_out`,
+      targetPortId: `port_layout_${i + 1}_in`,
+      dataType: "number"
+    })),
+    groups: [],
+    selection: {
+      nodeIds: [],
+      edgeIds: [],
+      groupIds: [],
+      activeSelectionMode: "none" as const
+    }
+  }
+);
+
+// 3-node feedback loop: A → B → C → A, designed to converge within ~20 iterations
+// A outputs (external + 0.5 * feedback); B passes through; C multiplies by 0.5
+export const CYCLIC_GRAPH_EXAMPLE_DOCUMENT = createDocument(
+  "graph_example_cyclic",
+  "Cyclic Graph Fixture",
+  ["cyclic", "feedback", "fixed-point"],
+  {
+    id: "graph_example_cyclic",
+    metadata: {
+      name: "Cyclic Graph Fixture",
+      version: "0.2.0",
+      tags: [],
+      createdAtIso: "2026-05-12T00:00:00.000Z"
+    },
+    nodes: [
+      {
+        id: "node_cyclic_a",
+        type: "cyclic-source",
+        position: vec2(100, 200),
+        dimensions: vec2(220, 96),
+        label: "A (Source+Feedback)",
+        properties: { externalValue: 1.0 },
+        ports: [
+          { id: "port_a_feedback", name: "feedback", direction: "input" as const, dataType: "number" },
+          { id: "port_a_out", name: "out", direction: "output" as const, dataType: "number" }
+        ]
+      },
+      {
+        id: "node_cyclic_b",
+        type: "cyclic-passthrough",
+        position: vec2(400, 120),
+        dimensions: vec2(200, 88),
+        label: "B (Passthrough)",
+        properties: {},
+        ports: [
+          { id: "port_b_in", name: "in", direction: "input" as const, dataType: "number" },
+          { id: "port_b_out", name: "out", direction: "output" as const, dataType: "number" }
+        ]
+      },
+      {
+        id: "node_cyclic_c",
+        type: "cyclic-dampen",
+        position: vec2(700, 200),
+        dimensions: vec2(200, 88),
+        label: "C (Dampen ×0.5)",
+        properties: { factor: 0.5 },
+        ports: [
+          { id: "port_c_in", name: "in", direction: "input" as const, dataType: "number" },
+          { id: "port_c_out", name: "out", direction: "output" as const, dataType: "number" }
+        ]
+      }
+    ],
+    edges: [
+      {
+        id: "edge_cyclic_a_b",
+        source: "node_cyclic_a",
+        target: "node_cyclic_b",
+        sourcePortId: "port_a_out",
+        targetPortId: "port_b_in",
+        dataType: "number"
+      },
+      {
+        id: "edge_cyclic_b_c",
+        source: "node_cyclic_b",
+        target: "node_cyclic_c",
+        sourcePortId: "port_b_out",
+        targetPortId: "port_c_in",
+        dataType: "number"
+      },
+      {
+        id: "edge_cyclic_c_a",
+        source: "node_cyclic_c",
+        target: "node_cyclic_a",
+        sourcePortId: "port_c_out",
+        targetPortId: "port_a_feedback",
+        dataType: "number"
+      }
+    ],
+    groups: [],
+    selection: {
+      nodeIds: [],
+      edgeIds: [],
+      groupIds: [],
+      activeSelectionMode: "none" as const
+    }
+  }
+);
+
 export const EXAMPLE_FIXTURES = {
   "small-graph": SMALL_GRAPH_EXAMPLE_DOCUMENT,
   "medium-graph": MEDIUM_GRAPH_EXAMPLE_DOCUMENT,
   "large-graph": LARGE_GRAPH_EXAMPLE_DOCUMENT,
   "invalid-graph": INVALID_GRAPH_EXAMPLE_DOCUMENT,
   "custom-node": CUSTOM_NODE_EXAMPLE_DOCUMENT,
-  "plugin-example": PLUGIN_EXAMPLE_DOCUMENT
+  "plugin-example": PLUGIN_EXAMPLE_DOCUMENT,
+  "svg-static-export": SVG_STATIC_EXPORT_DOCUMENT,
+  "layout-demo": LAYOUT_DEMO_DOCUMENT,
+  "cyclic-graph": CYCLIC_GRAPH_EXAMPLE_DOCUMENT
 } as const;
 
 export type ExampleFixtureId = keyof typeof EXAMPLE_FIXTURES;

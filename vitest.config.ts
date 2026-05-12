@@ -13,7 +13,8 @@ export default defineConfig({
       "@kaiisuuwii/renderer-web": fromRoot("./packages/renderer-web/src/index.ts"),
       "@kaiisuuwii/examples": fromRoot("./packages/examples/src/index.ts"),
       "@kaiisuuwii/plugins": fromRoot("./packages/plugins/src/index.ts"),
-      "@kaiisuuwii/docs": fromRoot("./packages/docs/src/index.ts")
+      "@kaiisuuwii/docs": fromRoot("./packages/docs/src/index.ts"),
+      "@kaiisuuwii/layout": fromRoot("./packages/layout/src/index.ts")
     }
   },
   test: {

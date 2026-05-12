@@ -1,5 +1,6 @@
 import { createCoreEngine } from "@kaiisuuwii/core";
 import { createSkiaRenderPlan } from "@kaiisuuwii/renderer-skia";
+import { createSvgRenderPlan, serializeSvgRenderPlan } from "@kaiisuuwii/renderer-svg";
 import { vec2 } from "@kaiisuuwii/shared";
 import {
   createAnnotationNodePlugin,
@@ -7,6 +8,7 @@ import {
   createExecutableRendererPlugin
 } from "@kaiisuuwii/plugins";
 import {
+  createCyclicExecutionScreen,
   CUSTOM_NODE_EXAMPLE_DOCUMENT,
   SMALL_GRAPH_EXAMPLE_DOCUMENT
 } from "@kaiisuuwii/examples";
@@ -88,9 +90,39 @@ export const createSerializationExample = () => {
   };
 };
 
+export const createSvgRendererExample = () => {
+  const plan = createSvgRenderPlan({
+    snapshot: SMALL_GRAPH_EXAMPLE_DOCUMENT.graph,
+    viewport: { width: 1280, height: 720 },
+    themeMode: "light"
+  });
+  const svgString = serializeSvgRenderPlan(plan);
+
+  return {
+    layerKinds: plan.layers.map((l) => l.kind),
+    visibleNodeCount: plan.diagnostics.visibleNodeCount,
+    viewBox: plan.viewBox,
+    svgByteLength: svgString.length,
+    isValidSvg: svgString.startsWith("<?xml") && svgString.endsWith("</svg>")
+  };
+};
+
+export const createCyclicExecutionExample = async () => {
+  const result = await createCyclicExecutionScreen();
+
+  return {
+    status: result.status,
+    converged: result.converged,
+    iterationsRun: result.iterationsRun,
+    cycleGroupCount: result.cycleGroups.length
+  };
+};
+
 export const documentationExamples = {
   createCoreApiExample,
+  createCyclicExecutionExample,
   createRendererApiExample,
   createPluginAuthoringExample,
-  createSerializationExample
+  createSerializationExample,
+  createSvgRendererExample
 } as const;

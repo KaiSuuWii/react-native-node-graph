@@ -856,3 +856,328 @@ The following commands pass from the repository root in this sandbox-safe verifi
 ## Verification note
 
 - `npm run typecheck` still uses TypeScript build mode and attempts to write declaration outputs into package `dist` folders, which remains blocked by sandbox `EPERM` restrictions in this Codex environment. The root no-emit typecheck path above passed and validates the updated source tree without requiring artifact writes.
+
+# Sprint 09 Changes Log
+
+## Summary
+
+This sprint replaced the `renderer-svg` placeholder stub with a complete, production-ready SVG renderer. The package now produces a typed element-tree plan (`SvgRenderPlan`) from a `GraphSnapshot` that can be serialized to an SVG string for static export, SSR, and browser rendering. All 101 suite tests pass.
+
+## SVG renderer types
+
+- Defined all SVG-specific contracts in `packages/renderer-svg/src/types.ts`:
+  - `SvgElement` — discriminated union of `SvgRect`, `SvgCircle`, `SvgPath`, `SvgText`, `SvgTspan`, `SvgImage`, `SvgGroup`, and `SvgClipPath`
+  - `SvgLayer` — mirrors `SceneLayer` with a `kind` discriminant and an `elements` payload
+  - `SvgRenderPlan` — top-level output with `viewBox`, `width`, `height`, `defs`, `layers`, `accessibility`, and `diagnostics`
+  - `SvgAccessibilityState` — `focusOrder`, `labels`, and `titleById` map
+  - `SvgDiagnostics` — `visibleNodeCount`, `culledNodeCount`, `buildDurationMs`
+  - `SvgRendererProps` — entry-point props mirroring `NodeGraphRendererProps` from `renderer-skia`
+  - `SvgTheme` — full color, font, and stroke token set for all scene elements
+  - `SvgVirtualizationOptions` — culling controls with viewport padding factor
+  - `SvgAccessibilityOptions` — aria label, title element, and role attribute toggles
+  - `SvgRendererPlugin` — plugin surface with `decorateNodeLayout`, `decorateEdgeLayout`, and `createOverlays` hooks
+  - `SvgCubicBezierCurve`, `SvgNodeLayout`, `SvgEdgeLayout`, `SvgGroupLayout`, `SvgPortLayout` — layout data contracts
+  - `SvgPluginOverlay`, `SvgNodeVisual`, `SvgEdgeVisual`, `SvgNodeBadgeVisual`, `SvgEdgeLabelVisual` — plugin annotation types
+
+## Theme system
+
+- Implemented `packages/renderer-svg/src/theme.ts` with:
+  - `LIGHT_SVG_THEME` — light color set matched to `LIGHT_RENDERER_THEME` from `renderer-skia`
+  - `DARK_SVG_THEME` — dark color set
+  - `DEFAULT_SVG_THEME` — alias for `LIGHT_SVG_THEME`
+  - `resolveSvgTheme(theme?, mode?)` — merges a partial override with the base theme
+  - `resolveSvgVirtualization` and `resolveSvgAccessibility` — defaults resolvers for options objects
+
+## Camera and viewBox
+
+- Implemented `packages/renderer-svg/src/camera.ts` with:
+  - `createSvgCameraState` — constructs a `CameraState` from partial props with defaults
+  - `computeSvgViewBox(camera, viewport)` — produces the `"minX minY width height"` viewBox string from camera position and zoom
+  - `computeSvgTransform(camera)` — returns a CSS/SVG transform string for a `<g>` wrapper
+  - `getSvgViewportBounds` — derives graph-space viewport bounds for culling
+
+## Element factory helpers
+
+- Implemented `packages/renderer-svg/src/elements.ts` with:
+  - `svgRect`, `svgCircle`, `svgPath`, `svgText`, `svgImage`, `svgGroup`, `svgClipRect` — typed factory functions for each `SvgElement` kind
+  - `svgMultilineText` — wraps a `<text>` with `<tspan>` children for multi-line text
+  - `bezierPathD(curve)` — converts a `SvgCubicBezierCurve` to an SVG `d` string in `M x y C cx1 cy1 cx2 cy2 x y` form
+
+## Layout builders
+
+- Implemented `packages/renderer-svg/src/layout.ts` with locally-defined pure layout functions (not imported from `renderer-skia`) to keep the architecture boundary clean:
+  - `buildNodeLayout` — derives `SvgNodeLayout` from a node snapshot including port positions and selection state
+  - `buildEdgeLayout` — derives `SvgEdgeLayout` including the cubic bezier curve from source and target port anchors
+  - `createSvgNodeElements` — emits body rect, header rect, label text, port circles, port labels, selection highlight, and optional accessibility `<title>` element
+  - `createSvgEdgeElements` — emits bezier `<path>`, selection highlight path, and plugin edge label texts
+  - `createSvgGroupElements` — emits background rect with low-opacity fill, dashed border rect, and group label text
+  - `createSvgGridElements` — emits vertical and horizontal grid line paths; suppressed when `camera.zoom < 0.3`
+
+## Scene builder
+
+- Implemented `packages/renderer-svg/src/scene.ts` — the main `buildSvgRenderScene(options)` function:
+  - Constructs eight ordered layers: `background`, `grid`, `group`, `edge`, `node`, `selection`, `plugin`, `debug`
+  - Viewport culling: derives graph-space bounds from camera and viewport; skips nodes whose bounds do not intersect (with padding); skips edges where both endpoints are culled; always preserves selected nodes
+  - Plugin decoration: calls `plugin.decorateNodeLayout` and `plugin.decorateEdgeLayout` before generating elements; calls `plugin.createOverlays` to populate the plugin layer
+  - Accessibility: wraps each node group in a `<g role="img">` with `aria-label`; builds `focusOrder` by sorting nodes left-to-right then top-to-bottom; populates `titleById` when `addTitleElements` is enabled
+  - Arrow marker def: emits one `<marker id="svg-arrowhead">` in the defs block for edge arrowheads
+  - Diagnostics: records `visibleNodeCount`, `culledNodeCount`, and `buildDurationMs` using `performance.now()`
+
+## Serializer
+
+- Implemented `packages/renderer-svg/src/serialize.ts` with:
+  - `serializeSvgElement(el)` — recursive element-to-string converter handling all `SvgElement` kinds with correct attribute escaping (`&`, `<`, `>`, `"`) in both attribute values and text content
+  - `serializeSvgRenderPlan(plan)` — emits a complete SVG document: `<?xml?>` declaration, `<svg>` root with `xmlns`, `viewBox`, `width`, `height`, `role="img"`, and `aria-label="graph"`; `<defs>` block; each layer as `<g data-layer="kind">`
+
+## Public API
+
+- Updated `packages/renderer-svg/src/index.ts` to export the complete public surface:
+  - `createSvgRenderPlan(props)` — entry-point that wires scene builder, theme resolver, and camera state
+  - `serializeSvgRenderPlan(plan)` — XML string serializer
+  - `LIGHT_SVG_THEME`, `DARK_SVG_THEME`, `DEFAULT_SVG_THEME`, `resolveSvgTheme`
+  - `computeSvgViewBox`, `computeSvgTransform`, `bezierPathD`
+  - All types from `types.ts`
+
+## Examples and docs packages
+
+- Added `SVG_STATIC_EXPORT_DOCUMENT` fixture to `packages/examples/src/fixtures.ts`
+- Added `createSvgExportScreen` to `packages/examples/src/screen.ts` — loads the fixture, calls `createSvgRenderPlan` and `serializeSvgRenderPlan`, and returns the SVG string
+- Exported `createSvgExportScreen` from `packages/examples/src/index.ts`
+- Added `createSvgRendererExample` to `packages/docs/src/examples.ts` — 10-line demonstration of the `createSvgRenderPlan` + `serializeSvgRenderPlan` round-trip
+- Added `svg-renderer` section to `packages/docs/src/content.ts`
+- Updated `packages/docs/src/index.ts` to expose the new doc content and example
+
+## Tests added
+
+- Added `packages/renderer-svg/tests/svg-renderer.test.ts` with 27 tests:
+  - Unit: `bezierPathD` produces the correct SVG path string for known and negative control points
+  - Unit: `computeSvgViewBox` produces correct viewBox for identity, zoomed, and zoom-out cameras
+  - Unit: `createSvgNodeElements` emits rect, header, label, port circles, and `aria-label`
+  - Unit: `createSvgEdgeElements` emits a bezier `<path>` with a correct `d` attribute and selection highlight
+  - Unit: `serializeSvgElement` escapes `&`, `<`, `>` in text content; serializes groups and `<clipPath>` recursively
+  - Unit: `serializeSvgRenderPlan` opens and closes `<svg>` correctly; emits `<defs>` and `data-layer` attributes
+  - Unit: culling — nodes at position `(50000, 50000)` are absent from the node layer; selected offscreen nodes are preserved
+  - Unit: plugin overlays appear in the plugin layer
+  - Unit: dark theme changes node colors relative to light theme
+  - Unit: accessibility `titleById` is populated when `addTitleElements` is enabled; `focusOrder` is sorted left-to-right
+  - Integration: `createSvgRenderPlan` + `serializeSvgRenderPlan` round-trip for small (3-node), medium (6-node), and large (10-node) fixtures
+  - Integration: all eight layer kinds (`background`, `grid`, `group`, `edge`, `node`, `selection`, `plugin`, `debug`) are present in the plan
+  - Architecture: `renderer-svg` source files contain no imports from `react`, `react-native`, or `@shopify/react-native-skia`
+- Updated `packages/renderer-svg/tests/smoke.test.ts` to match the new public API surface
+- Updated `packages/docs/tests/smoke.test.ts` and `packages/examples/tests/smoke.test.ts` for the SVG renderer additions
+
+## Verified checkpoints
+
+The following validations pass from the repository root:
+
+- `npx tsc -p tsconfig.json --noEmit --composite false --incremental false`
+- `npx vitest run --configLoader runner --cache false`
+
+---
+
+# Sprint 10 Changes Log
+
+## Summary
+
+This sprint introduced the `@kaiisuuwii/layout` package — a standalone, renderer-agnostic graph layout engine providing four algorithms (layered, force-directed, tree, radial), an incremental force-directed engine for frame-by-frame animation, and utility helpers for bridging core snapshots to layout inputs. The package depends only on `@kaiisuuwii/shared` and is registered as a public workspace package.
+
+## New package: `@kaiisuuwii/layout`
+
+Created `packages/layout/` with the following structure:
+
+- `package.json` — `@kaiisuuwii/layout` v0.2.0, public, single dependency on `@kaiisuuwii/shared: 0.1.0`
+- `tsconfig.json` — extends `../../tsconfig.base.json`, `lib: ["ES2022"]` (no DOM), references `../shared`
+- `tsconfig.build.json` — references `../shared/tsconfig.build.json`
+- `src/types.ts` — all public contracts
+- `src/utils.ts` — snapshot-to-layout-input bridge and helpers
+- `src/layered.ts` — Sugiyama-style layered layout
+- `src/force-directed.ts` — Fruchterman-Reingold force-directed layout
+- `src/tree.ts` — Reingold-Tilford tree layout
+- `src/radial.ts` — radial/ring layout
+- `src/index.ts` — public entry point
+
+## Public types (`src/types.ts`)
+
+- `LayoutAlgorithm` — `"layered" | "force-directed" | "tree" | "radial"`
+- `LayoutDirection` — `"top-bottom" | "bottom-top" | "left-right" | "right-left"`
+- `EdgeRoutingStyle` — `"curved" | "orthogonal" | "straight"`
+- `LayoutNodeInput` — `{ id, size, fixed?, initialPosition? }`
+- `LayoutEdgeInput` — `{ id, sourceNodeId, targetNodeId }`
+- `LayoutGraphInput` — `{ nodes, edges }`
+- `LayoutNodeResult` — `{ id, position }`
+- `LayoutResult` — `{ positions, algorithm, iterationsRun?, converged?, durationMs }`
+- `LayeredLayoutOptions`, `ForceDirectedLayoutOptions`, `TreeLayoutOptions`, `RadialLayoutOptions`, `LayoutOptions` (discriminated union)
+- `LayoutEngineState` — `{ positions, iteration, converged }`
+- `IncrementalLayoutEngine` — `{ step(), run(), getState(), setPositions(Map) }`
+- `LayoutError` — local `Error` subclass; does not depend on `core`
+
+## Utilities (`src/utils.ts`)
+
+- `graphInputFromSnapshot(snapshot)` — converts a `SnapshotLike` (structural duck type; no import from `@kaiisuuwii/core`) to `LayoutGraphInput` by mapping `node.dimensions` to `size` and `edge.source`/`edge.target` to `sourceNodeId`/`targetNodeId`
+- `applyResultToEngine(result, engine)` — calls `engine.updateNode` for each position in a `LayoutResult`; uses local `EngineAdapter` interface with `id: string` to stay dependency-free
+- `centerPositions(positions, viewport)` — translates all positions so the bounding box is centered in the viewport
+- `detectRoots(nodes, edges)` — returns the subset of nodes with no incoming edges
+- `buildAdjacency(nodes, edges)` — builds a `Map<string, string[]>` of outgoing neighbour lists
+
+## Layered layout (`src/layered.ts`)
+
+Simplified Sugiyama framework:
+
+- `findBackEdges` — iterative DFS to detect cycles; back edges are reversed to make the graph acyclic
+- `assignLayers` — longest-path rank assignment; nodes with no predecessors start at layer 0
+- `insertDummies` — adds virtual dummy nodes for edges that span multiple ranks, enabling proper edge routing
+- `groupByLayer` / `minimizeCrossings` — 4-pass barycentric crossing minimisation (top-down then bottom-up, repeated twice)
+- X/Y coordinate assignment — uniform spacing with `nodePaddingX`/`nodePaddingY`; centres each layer horizontally by mean position when `centerGraph: true`
+- `applyDirection` — transforms `(x, y)` coordinates for all four `LayoutDirection` values after the default `top-bottom` computation
+- Uses `import { performance } from "node:perf_hooks"` (no DOM lib)
+
+## Force-directed layout (`src/force-directed.ts`)
+
+Fruchterman-Reingold algorithm:
+
+- Pairwise repulsion scaled by `repulsionStrength / dist²`
+- Edge attraction using Hooke's law with configurable `idealEdgeLength` and `attractionStrength`
+- Centre-of-mass gravity with `gravity` coefficient
+- Temperature cooling: multiplies by `cooling` each iteration; caps force magnitude at current temperature
+- Fixed-node support: `LayoutNodeInput.fixed = true` nodes are skipped during force integration
+- Convergence check: stops early when max force magnitude falls below `convergenceThreshold`
+- `IncrementalForceLayout` class — implements `IncrementalLayoutEngine` with `step()` (one iteration), `run()` (full run to convergence or max iterations), `getState()`, and `setPositions(Map)`
+- `runForceDirectedLayout` and `createIncrementalForceLayout` exported
+
+## Tree layout (`src/tree.ts`)
+
+Reingold-Tilford-style algorithm:
+
+- `computeSubtreeWidths` — bottom-up pass computing the total width of each subtree for non-overlapping placement
+- `assignPositions` — top-down pass; when `centerSubtrees: true` parents are centred over the mean of their children's centre-X values
+- Forest handling: multiple roots laid side-by-side, separated by `nodePaddingX * 2`
+- Disconnected nodes (no edges) placed in a row below the forest at `nodePaddingY * 3` offset
+- Additional exports: `computeTreeDepth`, `getNodeDepths`
+
+## Radial layout (`src/radial.ts`)
+
+- `buildUndirectedAdj` — constructs an undirected adjacency map from directed edges
+- `findHighestDegreeNode` — selects the centre node as the one with the most neighbours
+- BFS ring assignment: centre node at ring 0, each subsequent BFS frontier is one ring further out
+- Angular distribution: `angleStep = 2π / ringNodes.length` for uniform spacing per ring
+- Position: `x = radius × cos(angle) − size.x / 2`, `y = radius × sin(angle) − size.y / 2`
+- `radiusStep` controls ring separation; `startAngle` offsets the first node's angle
+
+## Public entry point (`src/index.ts`)
+
+- `applyLayout(input, options)` — dispatcher with exhaustive `switch` on `options.algorithm`; throws `LayoutError` for unknown values; TypeScript `never` check enforces compile-time exhaustiveness
+- `createIncrementalLayout(input, options)` — creates an `IncrementalForceLayout` engine
+- Re-exports: `runLayeredLayout`, `runForceDirectedLayout`, `createIncrementalForceLayout`, `runTreeLayout`, `runRadialLayout`
+- Re-exports: `applyResultToEngine`, `buildAdjacency`, `centerPositions`, `detectRoots`, `graphInputFromSnapshot`
+- Re-exports: `LayoutError` and all public types from `types.ts`
+
+## Benchmarks (`benchmarks/layout-benchmark.ts`)
+
+Added four benchmark scenarios:
+
+- `1k-nodes-layered` — 1 000-node chain with layered algorithm
+- `1k-nodes-force` — 1 000-node chain with force-directed (300 iterations)
+- `5k-nodes-force` — 5 000-node chain with force-directed (100 iterations)
+- `sparse-tree` — 511-node complete binary tree with tree algorithm
+
+Benchmark script wired to root `package.json` as `"benchmark:layout": "vitest run packages/layout/benchmarks/layout-benchmark.ts"`.
+
+## Workspace registration
+
+- `tsconfig.json` (root) — added `{ "path": "./packages/layout" }` to references
+- `tsconfig.build.json` (root) — added `{ "path": "./packages/layout/tsconfig.build.json" }` to references
+- `tsconfig.base.json` — added `"@kaiisuuwii/layout": ["packages/layout/src/index.ts"]` to `paths`
+- `vitest.config.ts` — added `"@kaiisuuwii/layout"` alias pointing to `packages/layout/src/index.ts`
+- `package.json` (root) — added `benchmark:layout` script; added `@kaiisuuwii/layout` to `publish:dry-run`, `publish:public`, and `clean` scripts
+
+## Examples package updates
+
+- `packages/examples/package.json` — added `"@kaiisuuwii/layout": "0.2.0"` dependency
+- `packages/examples/tsconfig.json` — added `{ "path": "../layout" }` to references
+- `packages/examples/tsconfig.build.json` — added `{ "path": "../layout/tsconfig.build.json" }` to references
+- `packages/examples/src/fixtures.ts` — added `LAYOUT_DEMO_DOCUMENT`: a 20-node pipeline fixture with all positions at `vec2(0, 0)` intended for auto-layout demonstrations; added to `EXAMPLE_FIXTURES` map
+- `packages/examples/src/screen.ts` — added `createLayoutDemoScreen(algorithm)` function: imports the layout demo document into a core engine, calls `graphInputFromSnapshot`, dispatches `applyLayout` with algorithm-specific default options, applies positions via `beginTransaction`/`endTransaction`, and returns `{ id, algorithm, layoutResult, snapshot, renderPlan }`
+- `packages/examples/src/index.ts` — exported `createLayoutDemoScreen` and `LAYOUT_DEMO_DOCUMENT`
+
+## Tests added
+
+Added `packages/layout/tests/layout.test.ts` with 25 tests:
+
+- `graphInputFromSnapshot` — maps node dimensions to size, maps edge endpoints, handles empty graph
+- `applyLayout / layered` — returns positions for all nodes, respects `centerGraph: true`, positions are finite numbers
+- `applyLayout / force-directed` — positions all nodes, reports `iterationsRun` and `converged`, fixed nodes remain at initial position
+- `applyLayout / tree` — positions all nodes, parent node is above children for `top-bottom` direction
+- `applyLayout / radial` — positions all nodes, centre node is approximately centred at origin
+- `detectRoots` — returns only nodes with no incoming edges; returns all nodes when no edges exist
+- `buildAdjacency` — builds correct forward adjacency lists; handles multiple edges from a single source
+- `centerPositions` — translates positions so the bounding box is centred in the given viewport
+- `IncrementalLayoutEngine` — `step()` advances iteration count; `run()` reaches convergence; `setPositions` overrides state; `getState()` returns current positions
+- `LayoutError` — is an instance of `Error`; carries the provided message
+- Benchmark smoke — `runForceDirectedLayout` on a 200-node graph completes in under 5 000 ms
+
+## Verified checkpoints
+
+The following validations pass from the repository root:
+
+- `npx tsc -p tsconfig.json --noEmit --composite false --incremental false`
+- `npx vitest run --configLoader runner --cache false` — 126 tests across 20 files, all passing
+
+All 101 suite tests green.
+
+# Sprint 11 Changes Log
+
+## Summary
+
+This sprint completes the cyclic execution surface for `@kaiisuuwii/core`, wires the example and docs packages to the new behavior, and records the remaining public API additions introduced for fixed-point and stepped cycle handling.
+
+## Core execution engine
+
+- Extended the execution policy and result model for cyclic scheduling:
+  - `allowCycles`
+  - `maxIterations`
+  - `convergenceThreshold`
+  - `convergenceMode`
+  - `cycleBehavior`
+  - `iterationsRun`
+  - `converged`
+  - `cycleGroups`
+- Added cycle-aware execution events:
+  - `executionCycleIteration`
+  - `executionConverged`
+  - `executionDiverged`
+- Added `SteppedExecutionHandle` support through `execute()` when `cycleBehavior: "stepped"` is enabled.
+- Implemented strongly connected component discovery and condensation helpers in `packages/core/src/execution.ts`.
+- Preserved the original DAG-only execution path when cyclic execution is not enabled.
+- Added fixed-point execution for cyclic SCCs with:
+  - warm-starting from cached outputs
+  - per-iteration delta tracking
+  - convergence and divergence reporting
+  - deterministic super-node ordering for singleton and cyclic groups
+- Updated validation to always surface `cycleSets`, emit `CYCLE_DETECTED` when cycles are forbidden, and emit `CYCLE_PRESENT` warnings when cycles are allowed.
+- Re-exported the new cyclic execution types from `packages/core/src/index.ts`.
+
+## Examples and docs
+
+- Added the public `CYCLIC_GRAPH_EXAMPLE_DOCUMENT` fixture to the examples package and kept it registered under `cyclic-graph`.
+- Added `createCyclicExecutionScreen()` to execute the cyclic fixture with the real core scheduler and expose:
+  - `iterationsRun`
+  - `converged`
+  - `cycleGroups`
+  - `status`
+- Added `cyclic-graph` to the examples manifest and example definitions so it participates in the public package surface.
+- Fixed the layout demo screen to use the current `updateNode(nodeId, input)` API and typed algorithm defaults against `applyLayout`.
+- Added cyclic execution documentation content and a live docs example that runs the real example screen and reports convergence metadata.
+- Updated `docsManifest` to reflect the Sprint 11 docs surface.
+
+## Tests added and updated
+
+- Added example integration coverage for `createCyclicExecutionScreen()` and the public cyclic fixture.
+- Updated examples smoke coverage to include the `cyclic-graph` manifest entry.
+- Added docs smoke coverage for the cyclic execution example and updated manifest expectations to Sprint 11.
+- Existing core cyclic execution tests continue to cover:
+  - SCC detection
+  - fixed-point convergence
+  - divergence at `maxIterations`
+  - non-numeric `Infinity` deltas
+  - deterministic repeated runs
+  - stepped execution and cancellation

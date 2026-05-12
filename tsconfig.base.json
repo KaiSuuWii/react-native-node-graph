@@ -45,6 +45,9 @@
       ],
       "@kaiisuuwii/docs": [
         "packages/docs/src/index.ts"
+      ],
+      "@kaiisuuwii/layout": [
+        "packages/layout/src/index.ts"
       ]
     }
   }

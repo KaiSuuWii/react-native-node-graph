@@ -141,6 +141,7 @@ export interface ValidationResult {
   readonly isValid: boolean;
   readonly errors: readonly ValidationError[];
   readonly warnings: readonly ValidationWarning[];
+  readonly cycleSets: readonly CycleGroup[];
 }
 
 export interface NodeTypeDefinition {
@@ -167,12 +168,23 @@ export interface CorePluginHooks {
   readonly afterNodeCreate?: (node: Node, engine: CoreEngine) => void;
 }
 
+export interface CycleGroup {
+  readonly nodeIds: readonly NodeId[];
+  readonly entryEdgeIds: readonly EdgeId[];
+  readonly exitEdgeIds: readonly EdgeId[];
+}
+
 export interface ExecutionPolicy {
   readonly graph: "dag";
   readonly ordering: "pull";
   readonly asyncNodes: "await";
   readonly batching: "topological-levels";
   readonly caching: "node-output";
+  readonly allowCycles: boolean;
+  readonly maxIterations: number;
+  readonly convergenceThreshold: number;
+  readonly convergenceMode: "absolute" | "relative";
+  readonly cycleBehavior: "fixed-point" | "stepped";
 }
 
 export type ExecutionInputValue =
@@ -252,6 +264,35 @@ export interface ExecutionResult {
   readonly cacheStats: ExecutionCacheStats;
   readonly startedAtIso: string;
   readonly completedAtIso: string;
+  readonly iterationsRun: number;
+  readonly converged: boolean;
+  readonly cycleGroups: readonly CycleGroup[];
+}
+
+export interface ExecutionCycleIterationEvent {
+  readonly runId: string;
+  readonly groupIndex: number;
+  readonly iteration: number;
+  readonly maxDelta: number;
+  readonly nodeIds: readonly NodeId[];
+}
+
+export interface ExecutionConvergedEvent {
+  readonly runId: string;
+  readonly groupIndex: number;
+  readonly iterations: number;
+  readonly finalDelta: number;
+}
+
+export interface ExecutionDivergedEvent {
+  readonly runId: string;
+  readonly groupIndex: number;
+  readonly iterations: number;
+  readonly lastDelta: number;
+}
+
+export interface SteppedExecutionHandle extends ExecutionRunHandle {
+  readonly step: () => Promise<{ readonly done: boolean; readonly result?: ExecutionResult }>;
 }
 
 export interface ExecuteGraphOptions {
@@ -291,6 +332,14 @@ export interface CoreValidationPolicies {
   readonly allowCycles?: boolean;
 }
 
+export interface CyclicExecutionOptions {
+  readonly allowCycles?: boolean;
+  readonly maxIterations?: number;
+  readonly convergenceThreshold?: number;
+  readonly convergenceMode?: "absolute" | "relative";
+  readonly cycleBehavior?: "fixed-point" | "stepped";
+}
+
 export interface CreateCoreEngineOptions extends CoreValidationPolicies {
   readonly graph?: GraphInput;
   readonly nodeTypes?: readonly NodeTypeDefinition[];
@@ -307,6 +356,7 @@ export interface CreateCoreEngineOptions extends CoreValidationPolicies {
     context: EdgeValidationContext
   ) => ValidationResult | void;
   readonly idSeed?: string;
+  readonly cyclicExecution?: CyclicExecutionOptions;
 }
 
 export interface UpdateNodeInput {
@@ -388,6 +438,9 @@ export interface CoreEventMap {
     readonly result: ExecutionResult;
     readonly graph: GraphSnapshot;
   };
+  readonly executionCycleIteration: ExecutionCycleIterationEvent;
+  readonly executionConverged: ExecutionConvergedEvent;
+  readonly executionDiverged: ExecutionDivergedEvent;
 }
 
 export type CoreEventName = keyof CoreEventMap;

@@ -1,5 +1,6 @@
 import type { EdgeId, NodeId } from "@kaiisuuwii/shared";
 
+import { findStronglyConnectedComponents } from "./execution.js";
 import {
   cloneEdge,
   cloneGroup,
@@ -14,6 +15,7 @@ import {
   CoreGraphError,
   type CoreValidationPolicies,
   type CreateCoreEngineOptions,
+  type CycleGroup,
   type Edge,
   type EdgeInput,
   type EdgeValidationContext,
@@ -56,11 +58,13 @@ const createValidationWarning = (
 
 export const createValidationResult = (
   errors: readonly ValidationError[] = [],
-  warnings: readonly ValidationWarning[] = []
+  warnings: readonly ValidationWarning[] = [],
+  cycleSets: readonly CycleGroup[] = []
 ): ValidationResult => ({
   isValid: errors.length === 0,
   errors,
-  warnings
+  warnings,
+  cycleSets
 });
 
 export const assertUniqueIds = <T extends { readonly id: string }>(
@@ -586,7 +590,36 @@ export const validateGraphData = (
     }
   }
 
-  return createValidationResult(errors, warnings);
+  const nodeIds = normalizedGraph.nodes.map((n) => n.id);
+  const cycleSets = findStronglyConnectedComponents(nodeIds, normalizedGraph.edges, policies.allowSelfLoops);
+
+  if (cycleSets.length > 0) {
+    if (policies.allowCycles === false) {
+      for (const group of cycleSets) {
+        errors.push(
+          createValidationError(
+            "CYCLE_DETECTED",
+            `A cycle was detected involving nodes: ${group.nodeIds.join(", ")}`,
+            undefined,
+            group.nodeIds[0]
+          )
+        );
+      }
+    } else {
+      for (const group of cycleSets) {
+        warnings.push(
+          createValidationWarning(
+            "CYCLE_PRESENT",
+            `A cycle is present involving nodes: ${group.nodeIds.join(", ")}`,
+            undefined,
+            group.nodeIds[0]
+          )
+        );
+      }
+    }
+  }
+
+  return createValidationResult(errors, warnings, cycleSets);
 };
 
 export const validateEdgeInputAgainstState = (
