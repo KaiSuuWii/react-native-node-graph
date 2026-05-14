@@ -47,6 +47,34 @@ describe("package boundaries", () => {
     );
   });
 
+  it("keeps persistence isolated from renderers and platform packages", () => {
+    const manifest = readPackage("packages/persistence/package.json");
+    const dependencyNames = Object.keys(manifest.dependencies ?? {});
+
+    expect(dependencyNames.sort()).toEqual(
+      ["@kaiisuuwii/core", "@kaiisuuwii/shared"].sort()
+    );
+    expect(dependencyNames).not.toContain("react");
+    expect(dependencyNames).not.toContain("react-native");
+    expect(dependencyNames).not.toContain("@kaiisuuwii/renderer-skia");
+    expect(dependencyNames).not.toContain("@kaiisuuwii/renderer-svg");
+    expect(dependencyNames).not.toContain("@kaiisuuwii/renderer-web");
+  });
+
+  it("keeps sync isolated from renderers and platform packages", () => {
+    const manifest = readPackage("packages/sync/package.json");
+    const dependencyNames = Object.keys(manifest.dependencies ?? {});
+
+    expect(dependencyNames.sort()).toEqual(
+      ["@kaiisuuwii/core", "@kaiisuuwii/shared"].sort()
+    );
+    expect(dependencyNames).not.toContain("react");
+    expect(dependencyNames).not.toContain("react-native");
+    expect(dependencyNames).not.toContain("@kaiisuuwii/renderer-skia");
+    expect(dependencyNames).not.toContain("@kaiisuuwii/renderer-svg");
+    expect(dependencyNames).not.toContain("@kaiisuuwii/renderer-web");
+  });
+
   it("keeps publishable package metadata ready for npm release", () => {
     const packagePaths = [
       "packages/shared/package.json",
@@ -54,7 +82,10 @@ describe("package boundaries", () => {
       "packages/renderer-skia/package.json",
       "packages/renderer-svg/package.json",
       "packages/renderer-web/package.json",
-      "packages/plugins/package.json"
+      "packages/plugins/package.json",
+      "packages/react-native/package.json",
+      "packages/sync/package.json",
+      "packages/persistence/package.json"
     ];
 
     packagePaths.forEach((packagePath) => {

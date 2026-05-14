@@ -1,8 +1,13 @@
 import {
   EXAMPLE_FIXTURES,
   FOUNDATION_EXAMPLE_DOCUMENT,
+  createAnimatedEditorScreen,
   createExampleAppModel,
+  createImageNodesScreen,
+  createPersistenceExampleScreen,
   createRendererFoundationExampleScreen,
+  createSyncExampleScreen,
+  createTextNodesScreen,
   examplesManifest
 } from "@kaiisuuwii/examples";
 import { describe, expect, it } from "vitest";
@@ -18,7 +23,12 @@ describe("examples public api", () => {
         "custom-node",
         "plugin-example",
         "cyclic-graph",
-        "renderer-foundation-static"
+        "image-nodes-graph",
+        "text-nodes-graph",
+        "renderer-foundation-static",
+        "animated-editor-screen",
+        "persistence-example",
+        "sync-example"
       ])
     );
   });
@@ -49,5 +59,48 @@ describe("examples public api", () => {
     await expect(screen.initialExecution?.result).resolves.toMatchObject({
       status: "completed"
     });
+  });
+
+  it("builds the text node example screen with measured body content", () => {
+    const screen = createTextNodesScreen();
+
+    expect(screen.snapshot.nodes).toHaveLength(3);
+    expect(screen.renderPlan.nodes.some((node) => node.textContentItems.length > 0)).toBe(true);
+    expect(screen.svgString).toContain("<tspan");
+  });
+
+  it("builds the image node example screen with image content states", () => {
+    const screen = createImageNodesScreen();
+
+    expect(screen.snapshot.nodes).toHaveLength(3);
+    expect(screen.renderPlan.nodes.some((node) => node.imageContentItems.length > 0)).toBe(true);
+    expect(screen.svgString).toContain("<image");
+  });
+
+  it("builds the animated editor screen on top of the react-native canvas integration", () => {
+    const screen = createAnimatedEditorScreen();
+
+    expect(screen.id).toBe("animated-editor-screen");
+    expect(screen.renderPlan.nodes).toHaveLength(3);
+    expect(screen.canvas.getRenderPlan().scene.layers.map((layer) => layer.kind)).toContain("node");
+    screen.canvas.dispose();
+  });
+
+  it("builds the persistence example screen with a saved round-trip", async () => {
+    const screen = await createPersistenceExampleScreen();
+
+    expect(screen.id).toBe("persistence-example");
+    expect(screen.originalNodeCount).toBe(3);
+    expect(screen.loadedNodeCount).toBe(3);
+    expect(typeof screen.savedAt).toBe("string");
+  });
+
+  it("builds the sync example screen with two converged engines", async () => {
+    const screen = await createSyncExampleScreen();
+
+    expect(screen.id).toBe("sync-example");
+    expect(screen.user1NodeCount).toBe(1);
+    expect(screen.user2NodeCount).toBe(1);
+    expect(screen.presenceCount).toBe(1);
   });
 });

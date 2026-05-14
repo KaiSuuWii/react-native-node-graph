@@ -32,6 +32,7 @@ const serializeText = (el: SvgText): string => {
     optionalAttr("font-size", el.fontSize),
     optionalAttr("font-family", el.fontFamily),
     optionalAttr("font-weight", el.fontWeight),
+    optionalAttr("font-style", el.fontStyle),
     optionalAttr("fill", el.fill),
     optionalAttr("text-anchor", el.textAnchor),
     optionalAttr("dominant-baseline", el.dominantBaseline)
@@ -97,6 +98,9 @@ export const serializeSvgElement = (el: SvgElement): string => {
     case "text":
       return serializeText(el);
 
+    case "title":
+      return `<title>${escapeContent(el.content)}</title>`;
+
     case "image": {
       const attrs = [
         attr("x", el.x),
@@ -105,7 +109,8 @@ export const serializeSvgElement = (el: SvgElement): string => {
         attr("height", el.height),
         attr("href", el.href),
         optionalAttr("preserveAspectRatio", el.preserveAspectRatio),
-        optionalAttr("clip-path", el.clipPathId !== undefined ? `url(#${el.clipPathId})` : undefined)
+        optionalAttr("clip-path", el.clipPathId !== undefined ? `url(#${el.clipPathId})` : undefined),
+        optionalAttr("opacity", el.opacity)
       ].join("");
 
       return `<image${attrs}/>`;

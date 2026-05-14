@@ -43,6 +43,10 @@ export const createSkiaRenderPlan = (
     virtualization: resolveVirtualizationOptions(props.virtualization),
     debug: resolveDebugOptions(props.debug),
     accessibility: resolveRendererAccessibilityOptions(props.accessibility),
+    ...(props.resolveNodeType !== undefined ? { resolveNodeType: props.resolveNodeType } : {}),
+    ...(props.measurer !== undefined ? { measurer: props.measurer } : {}),
+    ...(props.imageCache !== undefined ? { imageCache: props.imageCache } : {}),
+    ...(props.presenceOverlays !== undefined ? { presenceOverlays: props.presenceOverlays } : {}),
     ...(props.interactionState !== undefined ? { interactionState: props.interactionState } : {}),
     ...(props.previousScene !== undefined ? { previousScene: props.previousScene } : {}),
     ...(props.frameTimestampMs !== undefined ? { frameTimestampMs: props.frameTimestampMs } : {})
@@ -74,6 +78,8 @@ export { DEFAULT_CAMERA_STATE, clampZoom, createCameraState, graphToScreenSpace,
 export { runRendererBenchmarkSuite } from "./benchmark.js";
 export type { RendererBenchmarkResult, RendererBenchmarkScenario } from "./benchmark.js";
 export { createGraphEditor } from "./editor.js";
+export { createRendererImageCache } from "./image-cache.js";
+export { createImageLoader } from "./image-loader.js";
 export { buildSceneSpatialIndex, hitTestSceneBounds, hitTestScenePoint, isPointInBounds } from "./hit-testing.js";
 export { createBezierCurve, createEdgeLayout, createGroupLayout, createNodeLayout, getNodeBounds, getPortAnchor } from "./layout.js";
 export {
@@ -88,6 +94,9 @@ export {
 } from "./performance.js";
 export { buildSkiaRenderScene } from "./scene.js";
 export { createSpatialIndex } from "./spatial-index.js";
+export { createSkiaTextMeasurer } from "./text-measurement.js";
+export type { CachedImage, ImageCacheOptions, RendererImageCache } from "./image-cache.js";
+export type { ImageLoader, ImageLoaderOptions } from "./image-loader.js";
 export {
   createRendererThemeController,
   DARK_RENDERER_THEME,
@@ -131,6 +140,9 @@ export type {
   RenderMarqueeSelection,
   RenderNodeLayout,
   RenderPortLayout,
+  ImageContentItem,
+  TextContentItem,
+  TextEditCommitEvent,
   RendererDebugOptions,
   RendererEdgeSnapshot,
   RendererGridTheme,
@@ -149,6 +161,8 @@ export type {
   RendererPluginOverlay,
   RendererSelectionTheme,
   RendererFocusTheme,
+  RendererImageTheme,
+  RendererTextTheme,
   RendererEdgeLabelVisual,
   RendererEdgeVisual,
   RendererTheme,
@@ -170,6 +184,7 @@ export type {
   SceneLayer,
   SceneLayerKind,
   SceneNodeLayer,
+  ScenePresenceLayer,
   ScenePluginLayer,
   SceneSelectionLayer,
   SelectionHighlight,
@@ -178,5 +193,6 @@ export type {
   SpatialIndex,
   SpatialIndexEntry,
   SpatialIndexEntryKind,
-  StaticGraphExampleScreen
+  StaticGraphExampleScreen,
+  SyncPresenceOverlay
 } from "./types.js";

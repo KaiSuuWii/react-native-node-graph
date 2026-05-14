@@ -4,7 +4,8 @@ import {
   MEDIUM_GRAPH_EXAMPLE_DOCUMENT,
   PLUGIN_EXAMPLE_DOCUMENT,
   createCyclicExecutionScreen,
-  createExampleAppModel
+  createExampleAppModel,
+  createSyncExampleScreen
 } from "@kaiisuuwii/examples";
 import { describe, expect, it } from "vitest";
 
@@ -60,5 +61,12 @@ describe("examples integration flows", () => {
     expect(screen.converged).toBe(true);
     expect(screen.iterationsRun).toBeGreaterThan(0);
     expect(screen.cycleGroups).toHaveLength(1);
+  });
+
+  it("converges the sync example across two in-process clients", async () => {
+    const screen = await createSyncExampleScreen();
+
+    expect(screen.user1NodeCount).toBe(screen.user2NodeCount);
+    expect(screen.presenceCount).toBe(1);
   });
 });

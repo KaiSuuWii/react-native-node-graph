@@ -233,6 +233,7 @@ describe("renderer-skia scene composition", () => {
       "selection",
       "interaction",
       "plugin",
+      "presence",
       "debug"
     ]);
     expect(nextScene.layers[3]?.kind === "edge" ? nextScene.layers[3].items.length : 0).toBe(1);
@@ -244,7 +245,7 @@ describe("renderer-skia scene composition", () => {
     expect(nextScene.diagnostics.fps).toBeCloseTo(25);
     expect(nextScene.diagnostics.redrawBounds).toBeDefined();
     expect(nextScene.layers[7]?.kind === "plugin" ? nextScene.layers[7].overlays.length : 0).toBe(2);
-    expect(nextScene.layers[8]?.kind === "debug" ? nextScene.layers[8].overlays.length : 0).toBeGreaterThan(0);
+    expect(nextScene.layers[9]?.kind === "debug" ? nextScene.layers[9].overlays.length : 0).toBeGreaterThan(0);
     expect(nextScene.layers[4]?.kind === "node" ? nextScene.layers[4].items[0]?.lod.showPorts : true).toBe(false);
     expect(nextScene.layers[3]?.kind === "edge" ? nextScene.layers[3].items[0]?.simplified : false).toBe(true);
     expect(nextScene.layers[4]?.kind === "node" ? nextScene.layers[4].items[0]?.pluginVisuals.length : 0).toBe(1);
@@ -270,6 +271,73 @@ describe("renderer-skia scene composition", () => {
     expect(plan.nodes).toHaveLength(2);
     expect(plan.edges).toHaveLength(1);
     expect(plan.scene.viewport.width).toBe(1024);
+  });
+
+  it("builds presence overlays into a dedicated scene layer", () => {
+    const scene = buildSkiaRenderScene({
+      snapshot,
+      viewport: {
+        width: 800,
+        height: 600
+      },
+      camera: {
+        position: vec2(0, 0),
+        zoom: 1
+      },
+      theme: DEFAULT_RENDERER_THEME,
+      plugins: [],
+      interaction: { onEvent: vi.fn() },
+      interactionOptions: {
+        panEnabled: true,
+        zoomEnabled: true,
+        minZoom: 0.25,
+        maxZoom: 4,
+        hitSlop: 8,
+        edgeHitWidth: 12,
+        longPressMarqueeEnabled: true
+      },
+      virtualization: {
+        enabled: false,
+        cullingPadding: 0,
+        suppressOffscreenNodes: false,
+        suppressOffscreenEdges: false,
+        preserveSelectedElements: true,
+        incrementalRedrawEnabled: true,
+        levelOfDetail: {
+          labels: 0.45,
+          ports: 0.7,
+          decorations: 1,
+          edgeSimplification: 0.55
+        }
+      },
+      debug: {
+        enabled: false,
+        showFpsOverlay: false,
+        showRenderBounds: false,
+        showHitRegions: false,
+        showEdgeRouting: false
+      },
+      accessibility: {
+        enabled: true,
+        keyboardNavigationEnabled: true,
+        screenReaderEnabled: true,
+        scalableUiEnabled: true
+      },
+      presenceOverlays: [
+        {
+          userId: "user-2",
+          displayName: "User Two",
+          color: "#2563eb",
+          cursorPosition: vec2(220, 180),
+          selectedNodeIds: [nodeAId]
+        }
+      ]
+    });
+    const presenceLayer = scene.layers.find((layer) => layer.kind === "presence");
+
+    expect(presenceLayer?.kind).toBe("presence");
+    expect(presenceLayer?.kind === "presence" ? presenceLayer.cursors[0]?.displayName : "").toBe("User Two");
+    expect(presenceLayer?.kind === "presence" ? presenceLayer.selections[0]?.targetId : "").toBe(nodeAId);
   });
 
   it("culls offscreen nodes while preserving selected elements", () => {

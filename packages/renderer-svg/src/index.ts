@@ -15,7 +15,10 @@ export const createSvgRenderPlan = (props: SvgRendererProps): SvgRenderPlan =>
     theme: resolveSvgTheme(props.theme, props.themeMode),
     plugins: props.plugins ?? [],
     virtualization: resolveSvgVirtualization(props.virtualization),
-    accessibility: resolveSvgAccessibility(props.accessibility)
+    accessibility: resolveSvgAccessibility(props.accessibility),
+    ...(props.resolveNodeType !== undefined ? { resolveNodeType: props.resolveNodeType } : {}),
+    ...(props.measurer !== undefined ? { measurer: props.measurer } : {}),
+    ...(props.resolveImageState !== undefined ? { resolveImageState: props.resolveImageState } : {})
   });
 
 export { serializeSvgRenderPlan } from "./serialize.js";

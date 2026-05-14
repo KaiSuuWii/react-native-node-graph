@@ -1,0 +1,61 @@
+{
+  "name": "@kaiisuuwii/sync",
+  "version": "0.2.0",
+  "private": false,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/",
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/KaiSuuWii/react-native-node-graph.git"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/KaiSuuWii/react-native-node-graph",
+  "bugs": {
+    "url": "https://github.com/KaiSuuWii/react-native-node-graph/issues"
+  },
+  "keywords": [
+    "graph",
+    "sync",
+    "crdt",
+    "yjs",
+    "collaboration"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run packages/sync/tests"
+  },
+  "dependencies": {
+    "@kaiisuuwii/core": "0.1.0",
+    "@kaiisuuwii/shared": "0.1.0"
+  },
+  "peerDependencies": {
+    "yjs": ">=13.6.0",
+    "y-websocket": ">=1.5.0",
+    "y-webrtc": ">=10.3.0"
+  },
+  "peerDependenciesMeta": {
+    "y-websocket": {
+      "optional": true
+    },
+    "y-webrtc": {
+      "optional": true
+    }
+  }
+}

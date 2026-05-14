@@ -686,6 +686,37 @@ describe("core engine history", () => {
     expect(engine.getSnapshot().edges).toHaveLength(1);
   });
 
+  it("preserves image content payloads through export and import", () => {
+    const engine = createCoreEngine({
+      nodeTypes: [{ type: "thumbnail", imageProperties: ["image"] }]
+    });
+    const imageNode = engine.createNode({
+      type: "thumbnail",
+      position: vec2(0, 0),
+      properties: {
+        image: {
+          kind: "image",
+          uri: "data:image/png;base64,AAAA",
+          alt: "Thumbnail"
+        }
+      }
+    });
+
+    const exported = engine.exportGraph();
+    const importedEngine = createCoreEngine({
+      nodeTypes: [{ type: "thumbnail", imageProperties: ["image"] }]
+    });
+    importedEngine.importGraph(exported);
+
+    expect(
+      importedEngine.getSnapshot().nodes.find((node) => node.id === imageNode.id)?.properties.image
+    ).toEqual({
+      kind: "image",
+      uri: "data:image/png;base64,AAAA",
+      alt: "Thumbnail"
+    });
+  });
+
   it("compresses drag-like update history", () => {
     const engine = createCoreEngine({
       idSeed: "compress",
@@ -1031,6 +1062,38 @@ describe("core engine serialization", () => {
 
     expect(() => engine.importGraph(document, registry)).not.toThrow();
     expect(engine.exportGraph().version).toBe(1);
+  });
+
+  it("preserves text content properties across export and import", () => {
+    const noteType: NodeTypeDefinition = {
+      type: "note",
+      textProperties: ["body"]
+    };
+    const engine = createCoreEngine({
+      nodeTypes: [noteType]
+    });
+    const node = engine.createNode({
+      type: "note",
+      position: vec2(40, 50),
+      properties: {
+        body: {
+          kind: "text",
+          value: "Round-trip text body",
+          fontWeight: "bold",
+          maxLines: 3
+        }
+      }
+    });
+    const exported = engine.exportGraph();
+    const importedEngine = createCoreEngine({
+      nodeTypes: [noteType]
+    });
+
+    importedEngine.importGraph(exported);
+
+    expect(importedEngine.getSnapshot().nodes.find((entry) => entry.id === node.id)?.properties.body).toEqual(
+      node.properties.body
+    );
   });
 });
 

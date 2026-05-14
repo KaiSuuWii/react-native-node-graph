@@ -1,0 +1,23 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "./src",
+    "outDir": "./dist",
+    "tsBuildInfoFile": "./.tsbuildinfo",
+    "lib": ["ES2022"],
+    "jsx": "react-native"
+  },
+  "references": [
+    {
+      "path": "../shared"
+    },
+    {
+      "path": "../core"
+    },
+    {
+      "path": "../renderer-skia"
+    }
+  ],
+  "include": ["src/**/*.ts"],
+  "exclude": ["tests", "dist"]
+}

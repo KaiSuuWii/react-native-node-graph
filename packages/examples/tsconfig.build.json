@@ -17,7 +17,16 @@
       "path": "../plugins/tsconfig.build.json"
     },
     {
+      "path": "../react-native/tsconfig.build.json"
+    },
+    {
       "path": "../layout/tsconfig.build.json"
+    },
+    {
+      "path": "../sync/tsconfig.build.json"
+    },
+    {
+      "path": "../persistence/tsconfig.build.json"
     }
   ]
 }

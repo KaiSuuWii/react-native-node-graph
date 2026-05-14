@@ -17,6 +17,8 @@ import type {
   AccessibilityDescriptor,
   BuildSceneOptions,
   DebugOverlay,
+  PresenceCursor,
+  PresenceSelectionRing,
   RenderConnectionPreview,
   RenderEdgeLayout,
   RenderNodeLayout,
@@ -31,6 +33,7 @@ import type {
   SceneGridLayer,
   SceneInteractionLayer,
   SceneLayer,
+  ScenePresenceLayer,
   SceneSelectionLayer,
   SelectionHighlight,
   SkiaRenderScene
@@ -185,6 +188,60 @@ const createInteractionLayer = (options: BuildSceneOptions): SceneInteractionLay
           }
         }
       : {})
+  };
+};
+
+const toInitials = (displayName: string): string =>
+  displayName
+    .split(/\s+/)
+    .filter((segment) => segment.length > 0)
+    .slice(0, 2)
+    .map((segment) => segment[0]?.toUpperCase() ?? "")
+    .join("");
+
+const createPresenceLayer = (
+  options: BuildSceneOptions,
+  nodeLayouts: readonly RenderNodeLayout[]
+): ScenePresenceLayer => {
+  const presenceOverlays = options.presenceOverlays ?? [];
+  const cursors: PresenceCursor[] = [];
+  const selections: PresenceSelectionRing[] = [];
+
+  presenceOverlays.forEach((overlay) => {
+    if (overlay.cursorPosition !== undefined) {
+      cursors.push({
+        userId: overlay.userId,
+        displayName: overlay.displayName,
+        color: overlay.color,
+        position: overlay.cursorPosition,
+        initials: toInitials(overlay.displayName),
+        tooltipPosition: vec2(overlay.cursorPosition.x, overlay.cursorPosition.y - 18)
+      });
+    }
+
+    overlay.selectedNodeIds.forEach((nodeId) => {
+      const nodeLayout = nodeLayouts.find((layout) => layout.id === nodeId);
+
+      if (nodeLayout === undefined) {
+        return;
+      }
+
+      selections.push({
+        userId: overlay.userId,
+        targetId: nodeId,
+        position: addVec2(nodeLayout.position, vec2(-4, -4)),
+        size: vec2(nodeLayout.size.x + 8, nodeLayout.size.y + 8),
+        color: overlay.color,
+        width: Math.max(1, options.theme.selection.width - 1),
+        dashed: true
+      });
+    });
+  });
+
+  return {
+    kind: "presence",
+    cursors,
+    selections
   };
 };
 
@@ -380,7 +437,22 @@ const createVisibleNodes = (
   return {
     visibleNodes,
     nodeLayouts: visibleNodes.map((node) =>
-      applyNodePlugins(createNodeLayout(node, options.theme, lod), node, options.plugins, pluginContext)
+      applyNodePlugins(
+        createNodeLayout(node, options.theme, {
+          lod,
+          ...(options.interactionState !== undefined
+            ? { interactionState: options.interactionState }
+            : {}),
+          ...(options.resolveNodeType !== undefined
+            ? { resolveNodeType: options.resolveNodeType }
+            : {}),
+          ...(options.measurer !== undefined ? { measurer: options.measurer } : {}),
+          ...(options.imageCache !== undefined ? { imageCache: options.imageCache } : {})
+        }),
+        node,
+        options.plugins,
+        pluginContext
+      )
     )
   };
 };
@@ -661,6 +733,7 @@ export const buildSkiaRenderScene = (options: BuildSceneOptions): SkiaRenderScen
     viewportBounds
   );
   const pluginLayer = createPluginLayer(options, nodeLayouts, edgeLayouts);
+  const presenceLayer = createPresenceLayer(options, nodeLayouts);
   const currentBounds = createBoundsRecord(
     groupItems,
     nodeLayouts,
@@ -728,6 +801,7 @@ export const buildSkiaRenderScene = (options: BuildSceneOptions): SkiaRenderScen
     ),
     createInteractionLayer(options),
     pluginLayer,
+    presenceLayer,
     {
       kind: "debug",
       enabled: options.debug.enabled,

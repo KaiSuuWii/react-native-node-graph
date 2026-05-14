@@ -63,6 +63,8 @@ export interface GraphMetadata {
   readonly version: string;
   readonly tags: readonly string[];
   readonly createdAtIso: string;
+  readonly savedAt?: string;
+  readonly [key: string]: unknown;
 }
 
 export type GraphInteractionPhase = "start" | "move" | "end" | "cancel";
@@ -74,6 +76,191 @@ export interface GraphInteractionEventPayload {
   readonly timestampMs: number;
   readonly targetId?: NodeId | EdgeId;
 }
+
+export interface TextContent {
+  readonly kind: "text";
+  readonly value: string;
+  readonly fontSize?: number;
+  readonly fontWeight?: "normal" | "bold" | "semibold";
+  readonly fontStyle?: "normal" | "italic";
+  readonly textAlign?: "left" | "center" | "right";
+  readonly color?: string;
+  readonly maxLines?: number;
+  readonly lineHeight?: number;
+  readonly letterSpacing?: number;
+  readonly selectable?: boolean;
+}
+
+export interface ImageContent {
+  readonly kind: "image";
+  readonly uri: string;
+  readonly fit?: "cover" | "contain" | "fill" | "none";
+  readonly borderRadius?: number;
+  readonly alt?: string;
+  readonly placeholder?: string;
+  readonly width?: number;
+  readonly height?: number;
+  readonly tintColor?: string;
+  readonly opacity?: number;
+}
+
+export type ImageLoadState = "idle" | "loading" | "loaded" | "error";
+
+export interface TextMeasureOptions {
+  readonly text: string;
+  readonly fontSize: number;
+  readonly fontWeight: "normal" | "bold" | "semibold";
+  readonly fontStyle: "normal" | "italic";
+  readonly maxWidth: number;
+  readonly lineHeight: number;
+  readonly maxLines?: number;
+}
+
+export interface TextMeasureResult {
+  readonly lines: readonly string[];
+  readonly totalHeight: number;
+  readonly lineHeightPx: number;
+  readonly truncated: boolean;
+}
+
+export interface TextMeasurer {
+  readonly measure: (options: TextMeasureOptions) => TextMeasureResult;
+}
+
+const DEFAULT_TEXT_LINE = "";
+
+const splitParagraphWords = (paragraph: string): readonly string[] => {
+  const normalized = paragraph.replace(/\s+/g, " ").trim();
+
+  if (normalized.length === 0) {
+    return [];
+  }
+
+  return normalized.split(" ");
+};
+
+const splitLongWord = (
+  word: string,
+  maxCharsPerLine: number
+): readonly string[] => {
+  if (maxCharsPerLine <= 0 || word.length <= maxCharsPerLine) {
+    return [word];
+  }
+
+  const segments: string[] = [];
+
+  for (let index = 0; index < word.length; index += maxCharsPerLine) {
+    segments.push(word.slice(index, index + maxCharsPerLine));
+  }
+
+  return segments;
+};
+
+export const createFallbackTextMeasurer = (): TextMeasurer => ({
+  measure: (options) => {
+    const charWidth = Math.max(1, options.fontSize * 0.6);
+    const maxCharsPerLine = Math.max(1, Math.floor(options.maxWidth / charWidth));
+    const lineHeightPx = options.fontSize * options.lineHeight;
+    const limit = options.maxLines === undefined || options.maxLines === 0 ? Number.POSITIVE_INFINITY : options.maxLines;
+    const lines: string[] = [];
+    let truncated = false;
+
+    const pushLine = (line: string): boolean => {
+      if (lines.length >= limit) {
+        truncated = true;
+        return false;
+      }
+
+      lines.push(line);
+      return true;
+    };
+
+    const paragraphs = options.text.length === 0 ? [DEFAULT_TEXT_LINE] : options.text.split(/\r?\n/);
+
+    for (const paragraph of paragraphs) {
+      if (paragraph.trim().length === 0) {
+        if (!pushLine(DEFAULT_TEXT_LINE)) {
+          break;
+        }
+
+        continue;
+      }
+
+      const words = splitParagraphWords(paragraph);
+
+      if (words.length === 0) {
+        if (!pushLine(DEFAULT_TEXT_LINE)) {
+          break;
+        }
+
+        continue;
+      }
+
+      let currentLine = "";
+
+      for (const word of words) {
+        const segments = splitLongWord(word, maxCharsPerLine);
+
+        for (const segment of segments) {
+          const nextLine = currentLine.length === 0 ? segment : `${currentLine} ${segment}`;
+
+          if (nextLine.length <= maxCharsPerLine) {
+            currentLine = nextLine;
+            continue;
+          }
+
+          if (!pushLine(currentLine)) {
+            currentLine = "";
+            break;
+          }
+
+          currentLine = segment;
+        }
+
+        if (truncated) {
+          break;
+        }
+      }
+
+      if (truncated) {
+        break;
+      }
+
+      if (!pushLine(currentLine.length > 0 ? currentLine : DEFAULT_TEXT_LINE)) {
+        break;
+      }
+    }
+
+    const resolvedLines = lines.length > 0 ? lines : [DEFAULT_TEXT_LINE];
+
+    return {
+      lines: resolvedLines,
+      totalHeight: resolvedLines.length * lineHeightPx,
+      lineHeightPx,
+      truncated
+    };
+  }
+});
+
+export const isTextContent = (value: unknown): value is TextContent => {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  const candidate = value as Partial<TextContent>;
+
+  return candidate.kind === "text" && typeof candidate.value === "string";
+};
+
+export const isImageContent = (value: unknown): value is ImageContent => {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  const candidate = value as Partial<ImageContent>;
+
+  return candidate.kind === "image" && typeof candidate.uri === "string";
+};
 
 export const DEFAULT_NODE_SIZE = vec2(160, 64);
 export const DEFAULT_EDGE_WIDTH = 2;

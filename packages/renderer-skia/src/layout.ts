@@ -1,19 +1,94 @@
-import { addVec2, boundsFromPoints, vec2, type Bounds, type Vec2 } from "@kaiisuuwii/shared";
-import type { GraphEdgeSnapshot, GraphNodeSnapshot, GraphSnapshot, Port } from "@kaiisuuwii/core";
+import {
+  addVec2,
+  boundsFromPoints,
+  createFallbackTextMeasurer,
+  isImageContent,
+  isTextContent,
+  vec2,
+  type Bounds,
+  type TextMeasurer,
+  type Vec2
+} from "@kaiisuuwii/shared";
+import type {
+  GraphEdgeSnapshot,
+  GraphNodeSnapshot,
+  GraphSnapshot,
+  NodeTypeDefinition,
+  Port
+} from "@kaiisuuwii/core";
 
 import type {
   CubicBezierCurve,
   EdgeRenderState,
+  ImageContentItem,
   RenderEdgeLayout,
+  RendererInteractionState,
   RenderNodeLevelOfDetail,
   RenderNodeLayout,
   RenderPortLayout,
   RendererTheme,
   SceneGroupItem
 } from "./types.js";
+import type { CachedImage, RendererImageCache } from "./image-cache.js";
 
 const HEADER_LABEL_GAP = 18;
 const GROUP_PADDING = 32;
+const NODE_BODY_PADDING_X = 12;
+const NODE_BODY_PADDING_Y = 10;
+const NODE_TEXT_ITEM_GAP = 8;
+const DEFAULT_MIN_BODY_HEIGHT = 48;
+
+const intersectBounds = (left: Bounds, right: Bounds): Bounds => ({
+  min: vec2(Math.max(left.min.x, right.min.x), Math.max(left.min.y, right.min.y)),
+  max: vec2(Math.min(left.max.x, right.max.x), Math.min(left.max.y, right.max.y))
+});
+
+const clampOpacity = (opacity: number | undefined): number =>
+  Math.max(0, Math.min(1, opacity ?? 1));
+
+const resolveImageDimensions = (
+  availableBodyWidth: number,
+  theme: RendererTheme,
+  content: ImageContentItem["content"],
+  cachedImage: CachedImage | undefined
+): Pick<ImageContentItem, "resolvedWidth" | "resolvedHeight"> => {
+  if (content.width !== undefined && content.height !== undefined) {
+    return {
+      resolvedWidth: content.width,
+      resolvedHeight: content.height
+    };
+  }
+
+  const aspectRatio =
+    cachedImage?.width !== undefined &&
+    cachedImage.height !== undefined &&
+    cachedImage.width > 0
+      ? cachedImage.height / cachedImage.width
+      : undefined;
+
+  if (content.width !== undefined) {
+    return {
+      resolvedWidth: content.width,
+      resolvedHeight:
+        content.height ??
+        (aspectRatio !== undefined
+          ? content.width * aspectRatio
+          : theme.image.defaultImageHeight)
+    };
+  }
+
+  if (content.height !== undefined && aspectRatio !== undefined) {
+    return {
+      resolvedWidth: content.height / aspectRatio,
+      resolvedHeight: content.height
+    };
+  }
+
+  return {
+    resolvedWidth: availableBodyWidth,
+    resolvedHeight: content.height ?? theme.image.defaultImageHeight
+  };
+};
 
 const splitPorts = (
   ports: readonly Port[]
@@ -48,23 +123,171 @@ const createPortLayout = (
 export const createNodeLayout = (
   node: GraphNodeSnapshot,
   theme: RendererTheme,
-  lod: RenderNodeLevelOfDetail = {
+  options:
+    | RenderNodeLevelOfDetail
+    | {
+        readonly lod?: RenderNodeLevelOfDetail;
+        readonly measurer?: TextMeasurer;
+        readonly interactionState?: RendererInteractionState;
+        readonly resolveNodeType?: (type: string) => NodeTypeDefinition | undefined;
+        readonly imageCache?: RendererImageCache;
+      } = {
+      zoom: 1,
+      showLabel: true,
+      showPorts: true,
+      showDecorations: true
+    }
+): RenderNodeLayout => {
+  const resolvedOptions =
+    "zoom" in options
+      ? { lod: options }
+      : options;
+  const lod = resolvedOptions.lod ?? {
     zoom: 1,
     showLabel: true,
     showPorts: true,
     showDecorations: true
+  };
+  const measurer = resolvedOptions.measurer ?? createFallbackTextMeasurer();
+  const definition = resolvedOptions.resolveNodeType?.(node.type);
+  const availableBodyWidth = Math.max(24, node.dimensions.x - NODE_BODY_PADDING_X * 2);
+  const textContentItems: RenderNodeLayout["textContentItems"] = [];
+  const imageContentItems: RenderNodeLayout["imageContentItems"] = [];
+  let contentCursorY = node.position.y + theme.node.headerHeight + NODE_BODY_PADDING_Y;
+  let totalContentHeight = 0;
+
+  (definition?.textProperties ?? []).forEach((propertyKey) => {
+    const value = node.properties[propertyKey];
+
+    if (!isTextContent(value)) {
+      return;
+    }
+
+    const fontSize = value.fontSize ?? theme.text.defaultFontSize;
+    const lineHeight = value.lineHeight ?? theme.text.defaultLineHeight;
+    const measureResult = measurer.measure({
+      text: value.value,
+      fontSize,
+      fontWeight: value.fontWeight ?? "normal",
+      fontStyle: value.fontStyle ?? "normal",
+      maxWidth: availableBodyWidth,
+      lineHeight,
+      maxLines: value.maxLines
+    });
+    const itemBounds: Bounds = {
+      min: vec2(node.position.x + NODE_BODY_PADDING_X, contentCursorY),
+      max: vec2(
+        node.position.x + NODE_BODY_PADDING_X + availableBodyWidth,
+        contentCursorY + measureResult.totalHeight
+      )
+    };
+
+    textContentItems.push({
+      kind: "text-content",
+      propertyKey,
+      content: value,
+      measuredLines: measureResult.lines,
+      measuredHeight: measureResult.totalHeight,
+      lineHeightPx: measureResult.lineHeightPx,
+      truncated: measureResult.truncated,
+      bounds: itemBounds,
+      isEditing:
+        resolvedOptions.interactionState?.editingNodeId === node.id &&
+        resolvedOptions.interactionState?.editingPropertyKey === propertyKey
+    });
+
+    contentCursorY += measureResult.totalHeight + NODE_TEXT_ITEM_GAP;
+    totalContentHeight += measureResult.totalHeight + NODE_TEXT_ITEM_GAP;
+  });
+
+  (definition?.imageProperties ?? []).forEach((propertyKey) => {
+    const value = node.properties[propertyKey];
+
+    if (!isImageContent(value)) {
+      return;
+    }
+
+    const cachedImage = resolvedOptions.imageCache?.get(value.uri);
+    const { resolvedWidth, resolvedHeight } = resolveImageDimensions(
+      availableBodyWidth,
+      theme,
+      value,
+      cachedImage
+    );
+    const bounds: Bounds = {
+      min: vec2(node.position.x + NODE_BODY_PADDING_X, contentCursorY),
+      max: vec2(
+        node.position.x + NODE_BODY_PADDING_X + resolvedWidth,
+        contentCursorY + resolvedHeight
+      )
+    };
+    const nodeBodyBounds: Bounds = {
+      min: vec2(node.position.x + NODE_BODY_PADDING_X, node.position.y + theme.node.headerHeight),
+      max: vec2(
+        node.position.x + node.dimensions.x - NODE_BODY_PADDING_X,
+        node.position.y + node.dimensions.y - NODE_BODY_PADDING_Y
+      )
+    };
+
+    imageContentItems.push({
+      kind: "image-content",
+      propertyKey,
+      content: value,
+      loadState: cachedImage?.state ?? "idle",
+      skiaImage: cachedImage?.skiaImage,
+      resolvedWidth,
+      resolvedHeight,
+      bounds,
+      clipBounds: intersectBounds(bounds, nodeBodyBounds),
+      opacity: clampOpacity(value.opacity)
+    });
+
+    contentCursorY += resolvedHeight + NODE_TEXT_ITEM_GAP;
+    totalContentHeight += resolvedHeight + NODE_TEXT_ITEM_GAP;
+  });
+
+  if (textContentItems.length > 0 || imageContentItems.length > 0) {
+    totalContentHeight = Math.max(0, totalContentHeight - NODE_TEXT_ITEM_GAP);
   }
-): RenderNodeLayout => {
+
+  const minBodyHeight = Math.max(DEFAULT_MIN_BODY_HEIGHT, node.dimensions.y - theme.node.headerHeight);
+  const resolvedBodyHeight =
+    textContentItems.length === 0 && imageContentItems.length === 0
+      ? minBodyHeight
+      : Math.max(minBodyHeight, totalContentHeight + NODE_BODY_PADDING_Y * 2);
+  const size = vec2(node.dimensions.x, theme.node.headerHeight + resolvedBodyHeight);
   const { inputPorts, outputPorts } = splitPorts(node.ports);
   const ports: RenderPortLayout[] = [];
 
   if (lod.showPorts) {
     inputPorts.forEach((port, index) => {
-      ports.push(createPortLayout(port, index, inputPorts.length, node, theme));
+      ports.push(
+        createPortLayout(
+          port,
+          index,
+          inputPorts.length,
+          {
+            ...node,
+            dimensions: size
+          },
+          theme
+        )
+      );
     });
 
     outputPorts.forEach((port, index) => {
-      ports.push(createPortLayout(port, index, outputPorts.length, node, theme));
+      ports.push(
+        createPortLayout(
+          port,
+          index,
+          outputPorts.length,
+          {
+            ...node,
+            dimensions: size
+          },
+          theme
+        )
+      );
     });
   }
 
@@ -73,7 +296,7 @@ export const createNodeLayout = (
     label: node.label,
     type: node.type,
     position: { ...node.position },
-    size: { ...node.dimensions },
+    size,
     headerHeight: theme.node.headerHeight,
     cornerRadius: theme.node.cornerRadius,
     bodyColor: theme.node.bodyColor,
@@ -83,6 +306,10 @@ export const createNodeLayout = (
     labelColor: theme.node.labelColor,
     subLabelColor: theme.node.subLabelColor,
     ports,
+    textContentItems,
+    imageContentItems,
+    autoHeight: size.y > node.dimensions.y,
+    minBodyHeight,
     lod,
     pluginVisuals: [],
     accessibilityLabel: `${node.label} node of type ${node.type}`,

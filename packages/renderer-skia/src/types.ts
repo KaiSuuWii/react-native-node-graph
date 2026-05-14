@@ -6,6 +6,7 @@ import type {
   GraphSnapshot,
   GraphNodeSnapshot,
   GroupId,
+  NodeTypeDefinition,
   PortId,
   SelectionChangeMode,
   SelectionSnapshot
@@ -14,9 +15,15 @@ import type {
   Bounds,
   EdgeId,
   GraphInteractionEventPayload,
+  ImageContent,
+  ImageLoadState,
   NodeId,
+  TextContent,
+  TextMeasurer,
   Vec2
 } from "@kaiisuuwii/shared";
+import type { RendererImageCache } from "./image-cache.js";
+import type { ImageLoader } from "./image-loader.js";
 
 export interface CameraVelocity {
   readonly x: number;
@@ -73,6 +80,24 @@ export interface RendererFocusTheme {
   readonly width: number;
 }
 
+export interface RendererTextTheme {
+  readonly defaultFontSize: number;
+  readonly defaultFontFamily: string;
+  readonly defaultLineHeight: number;
+  readonly bodyTextColor: string;
+  readonly editingBackgroundColor: string;
+  readonly editingBorderColor: string;
+  readonly editingCursorColor: string;
+  readonly placeholderColor: string;
+}
+
+export interface RendererImageTheme {
+  readonly placeholderColor: string;
+  readonly errorColor: string;
+  readonly loadingIndicatorColor: string;
+  readonly defaultImageHeight: number;
+}
+
 export type RendererThemeMode = "light" | "dark";
 export type RendererThemeScale = "comfortable" | "large";
 
@@ -88,6 +113,8 @@ export interface RendererTheme {
   readonly edge: RendererEdgeTheme;
   readonly selection: RendererSelectionTheme;
   readonly focus: RendererFocusTheme;
+  readonly text: RendererTextTheme;
+  readonly image: RendererImageTheme;
 }
 
 export interface RendererNodeBadgeVisual {
@@ -246,6 +273,22 @@ export interface MarqueeSelectionState {
 export interface RendererInteractionState {
   readonly connectionPreview?: ConnectionPreviewState;
   readonly marqueeSelection?: MarqueeSelectionState;
+  readonly editingNodeId?: NodeId;
+  readonly editingPropertyKey?: string;
+  readonly editingValue?: string;
+  readonly editingCursorPosition?: number;
+  readonly editingSelectionRange?: {
+    readonly start: number;
+    readonly end: number;
+  };
+}
+
+export interface SyncPresenceOverlay {
+  readonly userId: string;
+  readonly displayName: string;
+  readonly color: string;
+  readonly cursorPosition?: Vec2;
+  readonly selectedNodeIds: readonly NodeId[];
 }
 
 export interface NodeGraphRendererProps {
@@ -262,6 +305,10 @@ export interface NodeGraphRendererProps {
   readonly accessibility?: Partial<RendererAccessibilityOptions>;
   readonly camera?: Partial<CameraState>;
   readonly interactionState?: RendererInteractionState;
+  readonly resolveNodeType?: (type: string) => NodeTypeDefinition | undefined;
+  readonly measurer?: TextMeasurer;
+  readonly imageCache?: RendererImageCache;
+  readonly presenceOverlays?: readonly SyncPresenceOverlay[];
   readonly previousScene?: SkiaRenderScene;
   readonly frameTimestampMs?: number;
 }
@@ -275,6 +322,7 @@ export type SceneLayerKind =
   | "selection"
   | "interaction"
   | "plugin"
+  | "presence"
   | "debug";
 
 export interface SceneBackgroundLayer {
@@ -319,6 +367,31 @@ export interface RenderPortLayout {
   readonly accessibilityLabel: string;
 }
 
+export interface TextContentItem {
+  readonly kind: "text-content";
+  readonly propertyKey: string;
+  readonly content: TextContent;
+  readonly measuredLines: readonly string[];
+  readonly measuredHeight: number;
+  readonly lineHeightPx: number;
+  readonly truncated: boolean;
+  readonly bounds: Bounds;
+  readonly isEditing: boolean;
+}
+
+export interface ImageContentItem {
+  readonly kind: "image-content";
+  readonly propertyKey: string;
+  readonly content: ImageContent;
+  readonly loadState: ImageLoadState;
+  readonly skiaImage?: unknown;
+  readonly resolvedWidth: number;
+  readonly resolvedHeight: number;
+  readonly bounds: Bounds;
+  readonly clipBounds: Bounds;
+  readonly opacity: number;
+}
+
 export interface RenderNodeLayout {
   readonly id: NodeId;
   readonly label: string;
@@ -334,6 +407,10 @@ export interface RenderNodeLayout {
   readonly labelColor: string;
   readonly subLabelColor: string;
   readonly ports: readonly RenderPortLayout[];
+  readonly textContentItems: readonly TextContentItem[];
+  readonly imageContentItems: readonly ImageContentItem[];
+  readonly autoHeight: boolean;
+  readonly minBodyHeight: number;
   readonly lod: RenderNodeLevelOfDetail;
   readonly pluginVisuals: readonly RendererNodeVisual[];
   readonly accessibilityLabel: string;
@@ -405,6 +482,31 @@ export interface SceneInteractionLayer {
   readonly kind: "interaction";
   readonly connectionPreview?: RenderConnectionPreview;
   readonly marqueeSelection?: RenderMarqueeSelection;
+}
+
+export interface PresenceCursor {
+  readonly userId: string;
+  readonly displayName: string;
+  readonly color: string;
+  readonly position: Vec2;
+  readonly initials: string;
+  readonly tooltipPosition: Vec2;
+}
+
+export interface PresenceSelectionRing {
+  readonly userId: string;
+  readonly targetId: NodeId;
+  readonly position: Vec2;
+  readonly size: Vec2;
+  readonly color: string;
+  readonly width: number;
+  readonly dashed: boolean;
+}
+
+export interface ScenePresenceLayer {
+  readonly kind: "presence";
+  readonly cursors: readonly PresenceCursor[];
+  readonly selections: readonly PresenceSelectionRing[];
 }
 
 export interface SceneDebugLayer {
@@ -494,6 +596,7 @@ export type SceneLayer =
   | SceneSelectionLayer
   | SceneInteractionLayer
   | ScenePluginLayer
+  | ScenePresenceLayer
   | SceneDebugLayer;
 
 export interface SkiaRenderScene {
@@ -528,6 +631,10 @@ export interface BuildSceneOptions {
   readonly debug: RendererDebugOptions;
   readonly accessibility: RendererAccessibilityOptions;
   readonly interactionState?: RendererInteractionState;
+  readonly resolveNodeType?: (type: string) => NodeTypeDefinition | undefined;
+  readonly measurer?: TextMeasurer;
+  readonly imageCache?: RendererImageCache;
+  readonly presenceOverlays?: readonly SyncPresenceOverlay[];
   readonly previousScene?: SkiaRenderScene;
   readonly frameTimestampMs?: number;
 }
@@ -599,6 +706,11 @@ export type HitTestTarget =
       readonly nodeId: NodeId;
     }
   | {
+      readonly kind: "text-content";
+      readonly nodeId: NodeId;
+      readonly propertyKey: string;
+    }
+  | {
       readonly kind: "edge";
       readonly edgeId: EdgeId;
     }
@@ -629,6 +741,17 @@ export interface CreateGraphEditorOptions {
   readonly debug?: Partial<RendererDebugOptions>;
   readonly accessibility?: Partial<RendererAccessibilityOptions>;
   readonly camera?: Partial<CameraState>;
+  readonly measurer?: TextMeasurer;
+  readonly imageCache?: RendererImageCache;
+  readonly imageLoader?: ImageLoader;
+  readonly invalidate?: () => void;
+}
+
+export interface TextEditCommitEvent {
+  readonly nodeId: NodeId;
+  readonly propertyKey: string;
+  readonly previousValue: string;
+  readonly newValue: string;
 }
 
 export interface GraphEditor {
@@ -651,6 +774,13 @@ export interface GraphEditor {
   readonly updateConnectionPreview: (screenPoint: Vec2) => ConnectionPreviewState | undefined;
   readonly commitConnectionPreview: () => Edge | undefined;
   readonly cancelConnectionPreview: () => void;
+  readonly beginTextEdit: (nodeId: NodeId, propertyKey: string) => void;
+  readonly updateEditingValue: (value: string, cursorPosition: number) => void;
+  readonly setEditingSelection: (start: number, end: number) => void;
+  readonly commitTextEdit: () => TextEditCommitEvent | undefined;
+  readonly cancelTextEdit: () => void;
+  readonly isEditing: () => boolean;
+  readonly dispose: () => void;
 }
 
 export type RendererNodeSnapshot = GraphNodeSnapshot;

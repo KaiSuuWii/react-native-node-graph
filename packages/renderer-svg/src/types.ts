@@ -1,5 +1,14 @@
-import type { GraphSnapshot } from "@kaiisuuwii/core";
-import type { Bounds, EdgeId, NodeId, Vec2 } from "@kaiisuuwii/shared";
+import type { GraphSnapshot, NodeTypeDefinition } from "@kaiisuuwii/core";
+import type {
+  Bounds,
+  EdgeId,
+  ImageContent,
+  ImageLoadState,
+  NodeId,
+  TextContent,
+  TextMeasurer,
+  Vec2
+} from "@kaiisuuwii/shared";
 
 export interface CameraState {
   readonly position: Vec2;
@@ -52,8 +61,8 @@ export interface SvgPath {
 
 export interface SvgTspan {
   readonly kind: "tspan";
-  readonly dx?: number;
-  readonly dy?: number;
+  readonly dx?: number | string;
+  readonly dy?: number | string;
   readonly content: string;
 }
 
@@ -65,10 +74,16 @@ export interface SvgText {
   readonly fontSize?: number;
   readonly fontFamily?: string;
   readonly fontWeight?: string;
+  readonly fontStyle?: string;
   readonly fill?: string;
   readonly textAnchor?: "start" | "middle" | "end";
   readonly dominantBaseline?: string;
   readonly children?: readonly SvgTspan[];
+}
+
+export interface SvgTitle {
+  readonly kind: "title";
+  readonly content: string;
 }
 
 export interface SvgImage {
@@ -80,6 +95,7 @@ export interface SvgImage {
   readonly href: string;
   readonly preserveAspectRatio?: string;
   readonly clipPathId?: string;
+  readonly opacity?: number;
 }
 
 export interface SvgGroup {
@@ -104,6 +120,7 @@ export type SvgElement =
   | SvgCircle
   | SvgPath
   | SvgText
+  | SvgTitle
   | SvgImage
   | SvgGroup
   | SvgClipPath;
@@ -165,6 +182,12 @@ export interface SvgTheme {
   readonly groupFillColor: string;
   readonly groupBorderColor: string;
   readonly groupBorderWidth: number;
+  readonly image: {
+    readonly placeholderColor: string;
+    readonly errorColor: string;
+    readonly loadingIndicatorColor: string;
+    readonly defaultImageHeight: number;
+  };
   readonly mode: "light" | "dark";
 }
 
@@ -229,6 +252,25 @@ export interface SvgNodeLayout {
   readonly borderWidth: number;
   readonly labelColor: string;
   readonly ports: readonly SvgPortLayout[];
+  readonly textContentItems: readonly {
+    readonly propertyKey: string;
+    readonly content: TextContent;
+    readonly measuredLines: readonly string[];
+    readonly measuredHeight: number;
+    readonly lineHeightPx: number;
+    readonly truncated: boolean;
+    readonly bounds: Bounds;
+  }[];
+  readonly imageContentItems: readonly {
+    readonly propertyKey: string;
+    readonly content: ImageContent;
+    readonly loadState: ImageLoadState;
+    readonly resolvedWidth: number;
+    readonly resolvedHeight: number;
+    readonly bounds: Bounds;
+    readonly clipBounds: Bounds;
+    readonly opacity: number;
+  }[];
   readonly selected: boolean;
   readonly invalid: boolean;
   readonly pluginVisuals: readonly SvgNodeVisual[];
@@ -303,6 +345,9 @@ export interface SvgRendererProps {
   readonly plugins?: readonly SvgRendererPlugin[];
   readonly virtualization?: Partial<SvgVirtualizationOptions>;
   readonly accessibility?: Partial<SvgAccessibilityOptions>;
+  readonly resolveNodeType?: (type: string) => NodeTypeDefinition | undefined;
+  readonly measurer?: TextMeasurer;
+  readonly resolveImageState?: (uri: string) => ImageLoadState;
 }
 
 export interface SvgBuildSceneOptions {
@@ -313,4 +358,7 @@ export interface SvgBuildSceneOptions {
   readonly plugins: readonly SvgRendererPlugin[];
   readonly virtualization: SvgVirtualizationOptions;
   readonly accessibility: SvgAccessibilityOptions;
+  readonly resolveNodeType?: (type: string) => NodeTypeDefinition | undefined;
+  readonly measurer?: TextMeasurer;
+  readonly resolveImageState?: (uri: string) => ImageLoadState;
 }

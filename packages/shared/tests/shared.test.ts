@@ -1,11 +1,16 @@
 import {
   addVec2,
   boundsFromPoints,
+  createFallbackTextMeasurer,
   createEdgeId,
   createGraphId,
   createNodeId,
+  isImageContent,
+  isTextContent,
   scaleVec2,
   subtractVec2,
+  type ImageContent,
+  type TextContent,
   vec2
 } from "@kaiisuuwii/shared";
 import { describe, expect, it } from "vitest";
@@ -52,5 +57,69 @@ describe("shared bounds helpers", () => {
       min: vec2(0, 0),
       max: vec2(0, 0)
     });
+  });
+});
+
+describe("shared text helpers", () => {
+  it("wraps text using the fallback measurer", () => {
+    const result = createFallbackTextMeasurer().measure({
+      text: "alpha beta gamma delta",
+      fontSize: 10,
+      fontWeight: "normal",
+      fontStyle: "normal",
+      maxWidth: 36,
+      lineHeight: 1.4
+    });
+
+    expect(result.lines.length).toBeGreaterThan(1);
+    expect(result.lineHeightPx).toBe(14);
+    expect(result.truncated).toBe(false);
+  });
+
+  it("respects maxLines and reports truncation", () => {
+    const result = createFallbackTextMeasurer().measure({
+      text: "alpha beta gamma delta epsilon",
+      fontSize: 10,
+      fontWeight: "normal",
+      fontStyle: "normal",
+      maxWidth: 36,
+      lineHeight: 1.4,
+      maxLines: 2
+    });
+
+    expect(result.lines).toHaveLength(2);
+    expect(result.truncated).toBe(true);
+  });
+
+  it("detects text content payloads", () => {
+    const value: TextContent = {
+      kind: "text",
+      value: "hello"
+    };
+
+    expect(isTextContent(value)).toBe(true);
+    expect(isTextContent(null)).toBe(false);
+    expect(isTextContent(undefined)).toBe(false);
+    expect(isTextContent("string")).toBe(false);
+    expect(isTextContent(42)).toBe(false);
+  });
+
+  it("detects image content payloads", () => {
+    const value: ImageContent = {
+      kind: "image",
+      uri: "data:image/png;base64,AAAA"
+    };
+
+    expect(isImageContent(value)).toBe(true);
+    expect(isImageContent(null)).toBe(false);
+    expect(isImageContent(undefined)).toBe(false);
+    expect(isImageContent("string")).toBe(false);
+    expect(isImageContent(42)).toBe(false);
+    expect(
+      isImageContent({
+        kind: "text",
+        value: "hello"
+      })
+    ).toBe(false);
   });
 });

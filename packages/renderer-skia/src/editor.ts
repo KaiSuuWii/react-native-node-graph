@@ -6,10 +6,20 @@ import type {
   SelectionChangeMode,
   SelectionSnapshot
 } from "@kaiisuuwii/core";
-import { addVec2, subtractVec2, vec2, type Bounds, type NodeId, type Vec2 } from "@kaiisuuwii/shared";
+import {
+  addVec2,
+  isTextContent,
+  subtractVec2,
+  vec2,
+  type Bounds,
+  type NodeId,
+  type Vec2
+} from "@kaiisuuwii/shared";
 
 import { createCameraState, panCamera, screenToGraphSpace, zoomCameraAtScreenPoint } from "./camera.js";
 import { buildSceneSpatialIndex, hitTestSceneBounds, hitTestScenePoint } from "./hit-testing.js";
+import { createRendererImageCache } from "./image-cache.js";
+import { createImageLoader } from "./image-loader.js";
 import { buildSkiaRenderScene } from "./scene.js";
 import {
   resolveRendererAccessibilityOptions,
@@ -27,7 +37,8 @@ import type {
   MarqueeSelectionState,
   RendererInteractionState,
   SkiaRenderPlan,
-  SpatialIndex
+  SpatialIndex,
+  TextEditCommitEvent
 } from "./types.js";
 
 type DragState =
@@ -49,6 +60,8 @@ const DEFAULT_INTERACTION: GraphInteractionContract = {
 const targetIdFromHit = (target: HitTestTarget): string | undefined => {
   switch (target.kind) {
     case "node":
+      return target.nodeId;
+    case "text-content":
       return target.nodeId;
     case "edge":
       return target.edgeId;
@@ -131,6 +144,21 @@ const clearMarqueeSelection = (
   return rest;
 };
 
+const clearEditingState = (
+  state: RendererInteractionState
+): RendererInteractionState => {
+  const {
+    editingNodeId: _editingNodeId,
+    editingPropertyKey: _editingPropertyKey,
+    editingValue: _editingValue,
+    editingCursorPosition: _editingCursorPosition,
+    editingSelectionRange: _editingSelectionRange,
+    ...rest
+  } = state;
+
+  return rest;
+};
+
 export const createGraphEditor = (options: CreateGraphEditorOptions): GraphEditor => {
   const interaction = options.interaction ?? DEFAULT_INTERACTION;
   const theme = resolveRendererTheme(
@@ -146,6 +174,39 @@ export const createGraphEditor = (options: CreateGraphEditorOptions): GraphEdito
   let interactionState: RendererInteractionState = {};
   let dragState: DragState | undefined;
   let previousScene: SkiaRenderPlan["scene"] | undefined;
+  const imageCache = options.imageCache ?? createRendererImageCache();
+  const imageLoader = options.imageLoader ?? createImageLoader(imageCache);
+  const invalidate = options.invalidate ?? (() => undefined);
+  const imageSubscriptions = new Map<string, () => void>();
+
+  const syncVisibleImageSubscriptions = (plan: SkiaRenderPlan): void => {
+    const nextVisibleUris = new Set(
+      plan.nodes.flatMap((node) =>
+        node.imageContentItems.map((item) => item.content.uri)
+      )
+    );
+
+    nextVisibleUris.forEach((uri) => {
+      if (imageSubscriptions.has(uri)) {
+        return;
+      }
+
+      const unsubscribe = imageLoader.load(uri, () => {
+        invalidate();
+      });
+
+      imageSubscriptions.set(uri, unsubscribe);
+    });
+
+    Array.from(imageSubscriptions.entries()).forEach(([uri, unsubscribe]) => {
+      if (nextVisibleUris.has(uri)) {
+        return;
+      }
+
+      unsubscribe();
+      imageSubscriptions.delete(uri);
+    });
+  };
 
   const emitEvent = (phase: "start" | "move" | "end" | "cancel", position: Vec2, target?: string): void => {
     const payload = {
@@ -187,6 +248,9 @@ export const createGraphEditor = (options: CreateGraphEditorOptions): GraphEdito
       virtualization,
       debug,
       accessibility,
+      resolveNodeType: options.engine.getNodeType,
+      ...(options.measurer !== undefined ? { measurer: options.measurer } : {}),
+      imageCache,
       frameTimestampMs: Date.now(),
       ...(previousScene !== undefined ? { previousScene } : {}),
       ...(Object.keys(interactionState).length > 0 ? { interactionState } : {})
@@ -194,13 +258,16 @@ export const createGraphEditor = (options: CreateGraphEditorOptions): GraphEdito
     const nodeLayer = scene.layers.find((layer) => layer.kind === "node");
     const edgeLayer = scene.layers.find((layer) => layer.kind === "edge");
     previousScene = scene;
-
-    return {
+    const plan = {
       scene,
       nodes: nodeLayer?.kind === "node" ? nodeLayer.items : [],
       edges: edgeLayer?.kind === "edge" ? edgeLayer.items : [],
       interaction
     };
+
+    syncVisibleImageSubscriptions(plan);
+
+    return plan;
   };
 
   const getSpatialIndex = (): SpatialIndex => buildSceneSpatialIndex(getRenderPlan().scene);
@@ -219,7 +286,9 @@ export const createGraphEditor = (options: CreateGraphEditorOptions): GraphEdito
       const graphPoint = screenToGraphSpace(screenPoint, camera);
       const hit = hitTestScenePoint(getRenderPlan().scene, getSpatialIndex(), graphPoint);
 
-      if (hit.target.kind === "node") {
+      if (hit.target.kind === "text-content") {
+        options.engine.selectNode(hit.target.nodeId, mode);
+      } else if (hit.target.kind === "node") {
         options.engine.selectNode(hit.target.nodeId, mode);
       } else if (hit.target.kind === "edge") {
         options.engine.selectEdge(hit.target.edgeId, mode);
@@ -234,13 +303,23 @@ export const createGraphEditor = (options: CreateGraphEditorOptions): GraphEdito
     };
 
   const doubleTapAt: GraphEditor["doubleTapAt"] = (screenPoint) => {
-      const hit = hitTestScenePoint(getRenderPlan().scene, getSpatialIndex(), screenToGraphSpace(screenPoint, camera));
+      const hit = hitTestScenePoint(
+        getRenderPlan().scene,
+        getSpatialIndex(),
+        screenToGraphSpace(screenPoint, camera)
+      );
 
       if (hit.target.kind === "canvas") {
         camera = createCameraState({
           position: vec2(0, 0),
           zoom: 1
         });
+        return hit;
+      }
+
+      if (hit.target.kind === "text-content") {
+        options.engine.selectNode(hit.target.nodeId);
+        beginTextEdit(hit.target.nodeId, hit.target.propertyKey);
         return hit;
       }
 
@@ -301,6 +380,11 @@ export const createGraphEditor = (options: CreateGraphEditorOptions): GraphEdito
 
       if (hit.target.kind === "port") {
         return startConnectionPreview(screenPoint);
+      }
+
+      if (hit.target.kind === "text-content") {
+        options.engine.selectNode(hit.target.nodeId, mode);
+        return hit;
       }
 
       if (hit.target.kind === "node") {
@@ -514,6 +598,101 @@ export const createGraphEditor = (options: CreateGraphEditorOptions): GraphEdito
       interactionState = clearConnectionPreview(interactionState);
     };
 
+  const beginTextEdit: GraphEditor["beginTextEdit"] = (nodeId, propertyKey) => {
+      interactionState = clearEditingState(interactionState);
+      const node = options.engine.getSnapshot().nodes.find((entry) => entry.id === nodeId);
+      const content = node === undefined ? undefined : node.properties[propertyKey];
+
+      if (!isTextContent(content)) {
+        return;
+      }
+
+      const textContent = content;
+
+      interactionState = {
+        ...interactionState,
+        editingNodeId: nodeId,
+        editingPropertyKey: propertyKey,
+        editingValue: textContent.value,
+        editingCursorPosition: textContent.value.length
+      };
+    };
+
+  const updateEditingValue: GraphEditor["updateEditingValue"] = (value, cursorPosition) => {
+      if (interactionState.editingNodeId === undefined || interactionState.editingPropertyKey === undefined) {
+        return;
+      }
+
+      interactionState = {
+        ...interactionState,
+        editingValue: value,
+        editingCursorPosition: cursorPosition
+      };
+    };
+
+  const setEditingSelection: GraphEditor["setEditingSelection"] = (start, end) => {
+      if (interactionState.editingNodeId === undefined || interactionState.editingPropertyKey === undefined) {
+        return;
+      }
+
+      interactionState = {
+        ...interactionState,
+        editingSelectionRange: {
+          start,
+          end
+        }
+      };
+    };
+
+  const commitTextEdit: GraphEditor["commitTextEdit"] = () => {
+      const nodeId = interactionState.editingNodeId;
+      const propertyKey = interactionState.editingPropertyKey;
+
+      if (nodeId === undefined || propertyKey === undefined) {
+        return undefined;
+      }
+
+      const node = options.engine.getSnapshot().nodes.find((entry) => entry.id === nodeId);
+      const currentValue = node?.properties[propertyKey];
+
+      if (node === undefined || !isTextContent(currentValue)) {
+        interactionState = clearEditingState(interactionState);
+        return undefined;
+      }
+
+      const textContent = currentValue;
+
+      const nextValue = interactionState.editingValue ?? textContent.value;
+      const nextContent = {
+        ...textContent,
+        value: nextValue
+      };
+
+      options.engine.updateNode(nodeId, {
+        properties: {
+          ...node.properties,
+          [propertyKey]: nextContent
+        }
+      });
+      interactionState = clearEditingState(interactionState);
+
+      const event: TextEditCommitEvent = {
+        nodeId,
+        propertyKey,
+        previousValue: textContent.value,
+        newValue: nextValue
+      };
+
+      return event;
+    };
+
+  const cancelTextEdit: GraphEditor["cancelTextEdit"] = () => {
+      interactionState = clearEditingState(interactionState);
+    };
+
+  const isEditing: GraphEditor["isEditing"] = () =>
+    interactionState.editingNodeId !== undefined && interactionState.editingPropertyKey !== undefined;
+
   return {
     getSnapshot: () => options.engine.getSnapshot(),
     getCamera: () => camera,
@@ -533,6 +712,18 @@ export const createGraphEditor = (options: CreateGraphEditorOptions): GraphEdito
     startConnectionPreview,
     updateConnectionPreview,
     commitConnectionPreview,
-    cancelConnectionPreview
+    cancelConnectionPreview,
+    beginTextEdit,
+    updateEditingValue,
+    setEditingSelection,
+    commitTextEdit,
+    cancelTextEdit,
+    isEditing,
+    dispose: () => {
+      Array.from(imageSubscriptions.values()).forEach((unsubscribe) => unsubscribe());
+      imageSubscriptions.clear();
+      imageLoader.dispose();
+      imageCache.clear();
+    }
   };
 };

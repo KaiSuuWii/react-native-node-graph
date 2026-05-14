@@ -14,7 +14,10 @@ export default defineConfig({
       "@kaiisuuwii/examples": fromRoot("./packages/examples/src/index.ts"),
       "@kaiisuuwii/plugins": fromRoot("./packages/plugins/src/index.ts"),
       "@kaiisuuwii/docs": fromRoot("./packages/docs/src/index.ts"),
-      "@kaiisuuwii/layout": fromRoot("./packages/layout/src/index.ts")
+      "@kaiisuuwii/react-native": fromRoot("./packages/react-native/src/index.ts"),
+      "@kaiisuuwii/layout": fromRoot("./packages/layout/src/index.ts"),
+      "@kaiisuuwii/sync": fromRoot("./packages/sync/src/index.ts"),
+      "@kaiisuuwii/persistence": fromRoot("./packages/persistence/src/index.ts")
     }
   },
   test: {

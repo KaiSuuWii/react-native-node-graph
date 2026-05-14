@@ -149,6 +149,8 @@ export interface NodeTypeDefinition {
   readonly defaultLabel?: string;
   readonly defaultDimensions?: Vec2;
   readonly ports?: readonly PortInput[];
+  readonly textProperties?: readonly string[];
+  readonly imageProperties?: readonly string[];
   readonly validateProperties?: (
     properties: Readonly<Record<string, unknown>>
   ) => readonly string[] | void;

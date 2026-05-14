@@ -46,8 +46,17 @@
       "@kaiisuuwii/docs": [
         "packages/docs/src/index.ts"
       ],
+      "@kaiisuuwii/react-native": [
+        "packages/react-native/src/index.ts"
+      ],
       "@kaiisuuwii/layout": [
         "packages/layout/src/index.ts"
+      ],
+      "@kaiisuuwii/sync": [
+        "packages/sync/src/index.ts"
+      ],
+      "@kaiisuuwii/persistence": [
+        "packages/persistence/src/index.ts"
       ]
     }
   }

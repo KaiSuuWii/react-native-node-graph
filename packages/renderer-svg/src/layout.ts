@@ -2,11 +2,23 @@ import type {
   GraphEdgeSnapshot,
   GraphNodeSnapshot,
   GraphSnapshot,
+  NodeTypeDefinition,
   Port
 } from "@kaiisuuwii/core";
-import { addVec2, boundsFromPoints, vec2, type Bounds, type Vec2 } from "@kaiisuuwii/shared";
+import {
+  addVec2,
+  boundsFromPoints,
+  createFallbackTextMeasurer,
+  isImageContent,
+  isTextContent,
+  vec2,
+  type Bounds,
+  type ImageLoadState,
+  type TextMeasurer,
+  type Vec2
+} from "@kaiisuuwii/shared";
 
-import { bezierPathD, svgCircle, svgGroup, svgPath, svgRect, svgText } from "./elements.js";
+import { bezierPathD, svgCircle, svgClipRect, svgGroup, svgImage, svgPath, svgRect, svgText, svgTitle } from "./elements.js";
 import type {
   CameraState,
   RendererViewport,
@@ -24,6 +36,37 @@ const NODE_HEADER_HEIGHT = 28;
 const NODE_CORNER_RADIUS = 6;
 const GROUP_PADDING = 32;
 const HEADER_LABEL_GAP = 18;
+const NODE_BODY_PADDING_X = 12;
+const NODE_BODY_PADDING_Y = 10;
+const NODE_TEXT_ITEM_GAP = 8;
+const MIN_BODY_HEIGHT = 48;
+
+const intersectBounds = (left: Bounds, right: Bounds): Bounds => ({
+  min: vec2(Math.max(left.min.x, right.min.x), Math.max(left.min.y, right.min.y)),
+  max: vec2(Math.min(left.max.x, right.max.x), Math.min(left.max.y, right.max.y))
+});
+
+const clampOpacity = (opacity: number | undefined): number =>
+  Math.max(0, Math.min(1, opacity ?? 1));
+
+const resolvePreserveAspectRatio = (fit: "cover" | "contain" | "fill" | "none" | undefined): string => {
+  switch (fit ?? "cover") {
+    case "contain":
+      return "xMidYMid meet";
+    case "fill":
+      return "none";
+    case "none":
+      return "xMinYMin meet";
+    case "cover":
+    default:
+      return "xMidYMid slice";
+  }
+};
+
+const resolveImageState = (
+  uri: string,
+  resolver: ((uri: string) => ImageLoadState) | undefined
+): ImageLoadState => resolver?.(uri) ?? (uri.startsWith("data:image/") || uri.startsWith("http://") || uri.startsWith("https://") ? "loaded" : "idle");
 
 const buildPortPosition = (
   port: Port,
@@ -62,8 +105,111 @@ export const getPortAnchor = (
 export const buildNodeLayout = (
   node: GraphNodeSnapshot,
   theme: SvgTheme,
-  selected: boolean
+  selected: boolean,
+  options?: {
+    readonly resolveNodeType?: (type: string) => NodeTypeDefinition | undefined;
+    readonly measurer?: TextMeasurer;
+    readonly resolveImageState?: (uri: string) => ImageLoadState;
+  }
 ): SvgNodeLayout => {
+  const definition = options?.resolveNodeType?.(node.type);
+  const measurer = options?.measurer ?? createFallbackTextMeasurer();
+  const availableBodyWidth = Math.max(24, node.dimensions.x - NODE_BODY_PADDING_X * 2);
+  const textContentItems: SvgNodeLayout["textContentItems"] = [];
+  const imageContentItems: SvgNodeLayout["imageContentItems"] = [];
+  let contentCursorY = node.position.y + NODE_HEADER_HEIGHT + NODE_BODY_PADDING_Y;
+  let totalContentHeight = 0;
+
+  (definition?.textProperties ?? []).forEach((propertyKey) => {
+    const value = node.properties[propertyKey];
+
+    if (!isTextContent(value)) {
+      return;
+    }
+
+    const fontSize = value.fontSize ?? theme.nodeLabelFontSize;
+    const lineHeight = value.lineHeight ?? 1.4;
+    const measured = measurer.measure({
+      text: value.value,
+      fontSize,
+      fontWeight: value.fontWeight ?? "normal",
+      fontStyle: value.fontStyle ?? "normal",
+      maxWidth: availableBodyWidth,
+      lineHeight,
+      maxLines: value.maxLines
+    });
+
+    textContentItems.push({
+      propertyKey,
+      content: value,
+      measuredLines: measured.lines,
+      measuredHeight: measured.totalHeight,
+      lineHeightPx: measured.lineHeightPx,
+      truncated: measured.truncated,
+      bounds: {
+        min: vec2(node.position.x + NODE_BODY_PADDING_X, contentCursorY),
+        max: vec2(
+          node.position.x + NODE_BODY_PADDING_X + availableBodyWidth,
+          contentCursorY + measured.totalHeight
+        )
+      }
+    });
+
+    contentCursorY += measured.totalHeight + NODE_TEXT_ITEM_GAP;
+    totalContentHeight += measured.totalHeight + NODE_TEXT_ITEM_GAP;
+  });
+
+  (definition?.imageProperties ?? []).forEach((propertyKey) => {
+    const value = node.properties[propertyKey];
+
+    if (!isImageContent(value)) {
+      return;
+    }
+
+    const resolvedWidth = value.width ?? availableBodyWidth;
+    const resolvedHeight = value.height ?? theme.image.defaultImageHeight;
+    const bounds: Bounds = {
+      min: vec2(node.position.x + NODE_BODY_PADDING_X, contentCursorY),
+      max: vec2(
+        node.position.x + NODE_BODY_PADDING_X + resolvedWidth,
+        contentCursorY + resolvedHeight
+      )
+    };
+    const bodyBounds: Bounds = {
+      min: vec2(node.position.x + NODE_BODY_PADDING_X, node.position.y + NODE_HEADER_HEIGHT),
+      max: vec2(
+        node.position.x + node.dimensions.x - NODE_BODY_PADDING_X,
+        node.position.y + node.dimensions.y - NODE_BODY_PADDING_Y
+      )
+    };
+
+    imageContentItems.push({
+      propertyKey,
+      content: value,
+      loadState: resolveImageState(value.uri, options?.resolveImageState),
+      resolvedWidth,
+      resolvedHeight,
+      bounds,
+      clipBounds: intersectBounds(bounds, bodyBounds),
+      opacity: clampOpacity(value.opacity)
+    });
+
+    contentCursorY += resolvedHeight + NODE_TEXT_ITEM_GAP;
+    totalContentHeight += resolvedHeight + NODE_TEXT_ITEM_GAP;
+  });
+
+  if (textContentItems.length > 0 || imageContentItems.length > 0) {
+    totalContentHeight = Math.max(0, totalContentHeight - NODE_TEXT_ITEM_GAP);
+  }
+
+  const bodyHeight =
+    textContentItems.length === 0
+      ? Math.max(MIN_BODY_HEIGHT, node.dimensions.y - NODE_HEADER_HEIGHT)
+      : Math.max(
+          Math.max(MIN_BODY_HEIGHT, node.dimensions.y - NODE_HEADER_HEIGHT),
+          totalContentHeight + NODE_BODY_PADDING_Y * 2
+        );
+  const size = vec2(node.dimensions.x, NODE_HEADER_HEIGHT + bodyHeight);
   const inputPorts = node.ports.filter((p) => p.direction === "input");
   const outputPorts = node.ports.filter((p) => p.direction === "output");
   const ports: SvgPortLayout[] = [];
@@ -73,7 +219,7 @@ export const buildNodeLayout = (
       id: port.id,
       name: port.name,
       direction: "input",
-      position: buildPortPosition(port, index, inputPorts.length, node),
+      position: buildPortPosition(port, index, inputPorts.length, { ...node, dimensions: size }),
       radius: theme.portRadius,
       color: theme.portColor
     });
@@ -84,7 +230,7 @@ export const buildNodeLayout = (
       id: port.id,
       name: port.name,
       direction: "output",
-      position: buildPortPosition(port, index, outputPorts.length, node),
+      position: buildPortPosition(port, index, outputPorts.length, { ...node, dimensions: size }),
       radius: theme.portRadius,
       color: theme.portColor
     });
@@ -95,7 +241,7 @@ export const buildNodeLayout = (
     label: node.label,
     type: node.type,
     position: { ...node.position },
-    size: { ...node.dimensions },
+    size,
     headerHeight: NODE_HEADER_HEIGHT,
     cornerRadius: NODE_CORNER_RADIUS,
     bodyColor: theme.nodeBodyColor,
@@ -104,6 +250,8 @@ export const buildNodeLayout = (
     borderWidth: theme.nodeBorderWidth,
     labelColor: theme.nodeHeaderTextColor,
     ports,
+    textContentItems,
+    imageContentItems,
     selected,
     invalid: false,
     pluginVisuals: [],
@@ -236,18 +384,13 @@ export const createSvgNodeElements = (
   const { position: pos, size, cornerRadius, bodyColor, headerColor, borderColor, borderWidth, headerHeight } = layout;
   const elements: SvgElement[] = [];
 
-  const titleId = `title-${layout.id}`;
+  const clipPathId = `clip-node-body-${layout.id}`;
   const groupChildren: SvgElement[] = [];
+  const textChildren: SvgElement[] = [];
+  const clipDefs: SvgElement[] = [];
 
   if (acc.addTitleElements) {
-    groupChildren.push(svgRect({
-      x: pos.x,
-      y: pos.y,
-      width: size.x,
-      height: size.y,
-      fill: "transparent",
-      id: titleId
-    }));
+    groupChildren.push(svgTitle(layout.accessibilityLabel));
   }
 
   groupChildren.push(svgRect({
@@ -321,6 +464,50 @@ export const createSvgNodeElements = (
     ));
   });
 
+  layout.textContentItems.forEach((item) => {
+    const textAnchor =
+      item.content.textAlign === "center"
+        ? "middle"
+        : item.content.textAlign === "right"
+          ? "end"
+          : "start";
+    const textX =
+      item.content.textAlign === "center"
+        ? (item.bounds.min.x + item.bounds.max.x) * 0.5
+        : item.content.textAlign === "right"
+          ? item.bounds.max.x
+          : item.bounds.min.x;
+    const lastIndex = item.measuredLines.length - 1;
+
+    const firstLine =
+      item.truncated && item.measuredLines.length === 1
+        ? `${item.measuredLines[0] ?? ""}\u2026`
+        : item.measuredLines[0] ?? "";
+
+    textChildren.push(svgText(
+      textX,
+      item.bounds.min.y + item.lineHeightPx * 0.8,
+      firstLine,
+      {
+        fontSize: item.content.fontSize ?? theme.nodeLabelFontSize,
+        fontFamily: theme.nodeFontFamily,
+        fontWeight: item.content.fontWeight ?? "normal",
+        fontStyle: item.content.fontStyle ?? "normal",
+        fill: item.content.color ?? layout.labelColor,
+        textAnchor,
+        children: item.measuredLines.slice(1).map((line, index) => ({
+          kind: "tspan",
+          dx: 0,
+          dy: `${item.content.lineHeight ?? 1.4}em`,
+          content:
+            item.truncated && index + 1 === lastIndex
+              ? `${line}\u2026`
+              : line
+        }))
+      }
+    ));
+  });
+
   layout.pluginVisuals.forEach((visual) => {
     if (visual.kind === "badge") {
       groupChildren.push(svgRect({
@@ -346,8 +533,104 @@ export const createSvgNodeElements = (
     }
   });
 
+  clipDefs.push(
+    svgClipRect(
+      clipPathId,
+      pos.x + NODE_BODY_PADDING_X,
+      pos.y + headerHeight,
+      Math.max(0, size.x - NODE_BODY_PADDING_X * 2),
+      Math.max(0, size.y - headerHeight - NODE_BODY_PADDING_Y),
+      0
+    )
+  );
+
+  if (textChildren.length > 0) {
+    groupChildren.push(
+      svgGroup(textChildren, {
+        clipPathId
+      })
+    );
+  }
+
+  layout.imageContentItems.forEach((item, index) => {
+    const imageClipPathId =
+      item.content.borderRadius !== undefined && item.content.borderRadius > 0
+        ? `clip-node-image-${layout.id}-${index}`
+        : clipPathId;
+
+    if (imageClipPathId !== clipPathId) {
+      clipDefs.push(
+        svgClipRect(
+          imageClipPathId,
+          item.clipBounds.min.x,
+          item.clipBounds.min.y,
+          Math.max(0, item.clipBounds.max.x - item.clipBounds.min.x),
+          Math.max(0, item.clipBounds.max.y - item.clipBounds.min.y),
+          item.content.borderRadius ?? 0
+        )
+      );
+    }
+
+    if (item.loadState === "loaded") {
+      const imageChildren: SvgElement[] = [
+        svgImage({
+          href: item.content.uri,
+          x: item.bounds.min.x,
+          y: item.bounds.min.y,
+          width: item.resolvedWidth,
+          height: item.resolvedHeight,
+          preserveAspectRatio: resolvePreserveAspectRatio(item.content.fit),
+          clipPathId: imageClipPathId,
+          opacity: item.opacity
+        })
+      ];
+
+      if (item.content.tintColor !== undefined) {
+        imageChildren.push(
+          svgRect({
+            x: item.clipBounds.min.x,
+            y: item.clipBounds.min.y,
+            width: Math.max(0, item.clipBounds.max.x - item.clipBounds.min.x),
+            height: Math.max(0, item.clipBounds.max.y - item.clipBounds.min.y),
+            fill: item.content.tintColor,
+            opacity: Math.min(1, item.opacity * 0.35)
+          })
+        );
+      }
+
+      if (item.content.alt !== undefined && acc.addTitleElements) {
+        imageChildren.unshift(svgTitle(item.content.alt));
+      }
+
+      groupChildren.push(
+        svgGroup(imageChildren, {
+          clipPathId: imageClipPathId
+        })
+      );
+      return;
+    }
+
+    groupChildren.push(
+      svgRect({
+        x: item.clipBounds.min.x,
+        y: item.clipBounds.min.y,
+        width: Math.max(0, item.clipBounds.max.x - item.clipBounds.min.x),
+        height: Math.max(0, item.clipBounds.max.y - item.clipBounds.min.y),
+        rx: item.content.borderRadius,
+        ry: item.content.borderRadius,
+        fill:
+          item.loadState === "error"
+            ? theme.image.errorColor
+            : theme.image.placeholderColor,
+        opacity: item.opacity
+      })
+    );
+  });
+
+  elements.push(...clipDefs);
+
   elements.push(svgGroup(groupChildren, {
-    ...(acc.addRoleAttributes ? { role: "img" } : {}),
+    ...(acc.addRoleAttributes ? { role: "group" } : {}),
     ...(acc.addAriaLabels ? { ariaLabel: layout.accessibilityLabel } : {})
   }));
 

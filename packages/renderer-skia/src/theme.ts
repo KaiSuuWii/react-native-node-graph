@@ -55,6 +55,22 @@ export const LIGHT_RENDERER_THEME: RendererTheme = {
   focus: {
     color: "#c2410c",
     width: 3
+  },
+  text: {
+    defaultFontSize: 13,
+    defaultFontFamily: "System",
+    defaultLineHeight: 1.4,
+    bodyTextColor: "#1e293b",
+    editingBackgroundColor: "#ecfccb",
+    editingBorderColor: "#65a30d",
+    editingCursorColor: "#365314",
+    placeholderColor: "#94a3b8"
+  },
+  image: {
+    placeholderColor: "#e2e8f0",
+    errorColor: "#fca5a5",
+    loadingIndicatorColor: "#94a3b8",
+    defaultImageHeight: 80
   }
 };
 
@@ -97,6 +113,22 @@ export const DARK_RENDERER_THEME: RendererTheme = {
   focus: {
     color: "#f59e0b",
     width: 3
+  },
+  text: {
+    defaultFontSize: 13,
+    defaultFontFamily: "System",
+    defaultLineHeight: 1.4,
+    bodyTextColor: "#e2e8f0",
+    editingBackgroundColor: "#20362f",
+    editingBorderColor: "#4fd1c5",
+    editingCursorColor: "#ccfbf1",
+    placeholderColor: "#94a3b8"
+  },
+  image: {
+    placeholderColor: "#334155",
+    errorColor: "#fca5a5",
+    loadingIndicatorColor: "#94a3b8",
+    defaultImageHeight: 80
   }
 };
 
@@ -167,6 +199,10 @@ const withThemeScale = (
     focus: {
       ...theme.focus,
       width: Number((theme.focus.width * factor).toFixed(2))
+    },
+    text: {
+      ...theme.text,
+      defaultFontSize: Number((theme.text.defaultFontSize * factor).toFixed(2))
     }
   };
 };
@@ -213,6 +249,14 @@ export const resolveRendererTheme = (
     focus: {
       ...baseTheme.focus,
       ...theme?.focus
+    },
+    text: {
+      ...baseTheme.text,
+      ...theme?.text
+    },
+    image: {
+      ...baseTheme.image,
+      ...theme?.image
     }
   };
 };

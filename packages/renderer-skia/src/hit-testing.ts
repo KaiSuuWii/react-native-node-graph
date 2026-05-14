@@ -14,10 +14,11 @@ import type {
 
 const HIT_PRIORITY: Record<HitTestTarget["kind"], number> = {
   port: 0,
-  node: 1,
-  edge: 2,
-  group: 3,
-  canvas: 4
+  "text-content": 1,
+  node: 2,
+  edge: 3,
+  group: 4,
+  canvas: 5
 };
 
 export const isPointInBounds = (point: Vec2, bounds: Bounds): boolean =>
@@ -206,6 +207,24 @@ export const hitTestScenePoint = (
       point,
       distance: Number.POSITIVE_INFINITY
     };
+  }
+
+  if (best.candidate.kind === "node") {
+    const nodeLayer = getNodeLayer(scene);
+    const layout = nodeLayer?.items.find((item) => item.id === best.candidate.id);
+    const textHit = layout?.textContentItems.find((item) => isPointInBounds(point, item.bounds));
+
+    if (layout !== undefined && textHit !== undefined) {
+      return {
+        target: {
+          kind: "text-content",
+          nodeId: layout.id,
+          propertyKey: textHit.propertyKey
+        },
+        point,
+        distance: 0
+      };
+    }
   }
 
   return {

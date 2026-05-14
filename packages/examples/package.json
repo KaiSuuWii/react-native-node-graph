@@ -39,9 +39,12 @@
   "dependencies": {
     "@kaiisuuwii/core": "0.1.0",
     "@kaiisuuwii/layout": "0.2.0",
+    "@kaiisuuwii/persistence": "0.2.0",
     "@kaiisuuwii/plugins": "0.1.0",
+    "@kaiisuuwii/react-native": "0.2.0",
     "@kaiisuuwii/renderer-skia": "0.1.0",
     "@kaiisuuwii/renderer-svg": "0.1.0",
-    "@kaiisuuwii/shared": "0.1.0"
+    "@kaiisuuwii/shared": "0.1.0",
+    "@kaiisuuwii/sync": "0.2.0"
   }
 }

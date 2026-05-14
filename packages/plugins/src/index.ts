@@ -9,7 +9,7 @@ import type {
   RenderNodeLayout,
   RendererPlugin
 } from "@kaiisuuwii/renderer-skia";
-import { vec2 } from "@kaiisuuwii/shared";
+import { isImageContent, isTextContent, vec2, type ImageContent, type TextContent } from "@kaiisuuwii/shared";
 
 const readNumericInput = (
   inputs: ExecutionInputs,
@@ -117,6 +117,60 @@ const annotationNodeType: NodeTypeDefinition = {
   }
 };
 
+const noteNodeType: NodeTypeDefinition = {
+  type: "note",
+  defaultLabel: "Note",
+  textProperties: ["body"],
+  ports: [],
+  validateProperties: (properties) => {
+    const body = properties.body;
+
+    if (!isTextContent(body)) {
+      return ["Property 'body' must be TextContent."];
+    }
+
+    return [];
+  },
+  execution: {
+    execute: ({ node }) => ({
+      body:
+        isTextContent(node.properties.body)
+          ? (node.properties.body as TextContent)
+          : {
+              kind: "text",
+              value: ""
+            }
+    })
+  }
+};
+
+const thumbnailNodeType: NodeTypeDefinition = {
+  type: "thumbnail",
+  defaultLabel: "Thumbnail",
+  imageProperties: ["image"],
+  ports: [],
+  validateProperties: (properties) => {
+    const image = properties.image;
+
+    if (!isImageContent(image)) {
+      return ["Property 'image' must be ImageContent."];
+    }
+
+    return [];
+  },
+  execution: {
+    execute: ({ node }) => ({
+      image:
+        isImageContent(node.properties.image)
+          ? (node.properties.image as ImageContent)
+          : {
+              kind: "image",
+              uri: ""
+            }
+    })
+  }
+};
+
 export const createExecutableNodePlugin = (): GraphPlugin => ({
   name: "sample-executable-node-plugin",
   initialize: ({ engine }: GraphPluginContext) => {
@@ -139,6 +193,28 @@ export const createAnnotationNodePlugin = (): GraphPlugin => ({
 
     return () => {
       engine.unregisterNodeType(annotationNodeType.type);
+    };
+  }
+});
+
+export const createTextNodePlugin = (): GraphPlugin => ({
+  name: "note-node-plugin",
+  initialize: ({ engine }: GraphPluginContext) => {
+    engine.registerNodeType(noteNodeType);
+
+    return () => {
+      engine.unregisterNodeType(noteNodeType.type);
+    };
+  }
+});
+
+export const createImageNodePlugin = (): GraphPlugin => ({
+  name: "thumbnail-node-plugin",
+  initialize: ({ engine }: GraphPluginContext) => {
+    engine.registerNodeType(thumbnailNodeType);
+
+    return () => {
+      engine.unregisterNodeType(thumbnailNodeType.type);
     };
   }
 });
@@ -252,9 +328,45 @@ export const createAnnotationRendererPlugin = (): RendererPlugin => ({
       }))
 });
 
+export const createTextRendererPlugin = (): RendererPlugin => ({
+  name: "note-renderer-plugin",
+  decorateNodeLayout: (layout, node) => {
+    if (node.type !== "note") {
+      return layout;
+    }
+
+    return {
+      ...withNodeBadge(layout, "NOTE", "#ca8a04"),
+      headerColor: "#fef9c3",
+      bodyColor: "#fefce8",
+      borderColor: "#ca8a04"
+    };
+  }
+});
+
+export const createImageRendererPlugin = (): RendererPlugin => ({
+  name: "thumbnail-renderer-plugin",
+  decorateNodeLayout: (layout, node) => {
+    if (node.type !== "thumbnail") {
+      return layout;
+    }
+
+    return {
+      ...withNodeBadge(layout, "IMG", "#0284c7"),
+      headerColor: "#e0f2fe",
+      bodyColor: "#f0f9ff",
+      borderColor: "#0284c7"
+    };
+  }
+});
+
 export const pluginRegistry = [
   "sample-executable-node-plugin",
   "sample-executable-renderer-plugin",
   "sample-annotation-node-plugin",
-  "sample-annotation-renderer-plugin"
+  "sample-annotation-renderer-plugin",
+  "note-node-plugin",
+  "note-renderer-plugin",
+  "thumbnail-node-plugin",
+  "thumbnail-renderer-plugin"
 ] as const;

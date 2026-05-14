@@ -33,6 +33,7 @@ export const cloneRecord = (
 ): Readonly<Record<string, unknown>> => ({ ...(input ?? {}) });
 
 export const cloneMetadata = (input?: Partial<GraphMetadata>): GraphMetadata => ({
+  ...(input as Readonly<Record<string, unknown>> | undefined),
   name: input?.name ?? DEFAULT_GRAPH_NAME,
   version: input?.version ?? DEFAULT_GRAPH_VERSION,
   tags: [...(input?.tags ?? [])],

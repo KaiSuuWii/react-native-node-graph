@@ -5,6 +5,10 @@ import {
   createAnnotationRendererPlugin,
   createExecutableNodePlugin,
   createExecutableRendererPlugin,
+  createImageNodePlugin,
+  createImageRendererPlugin,
+  createTextNodePlugin,
+  createTextRendererPlugin,
   pluginRegistry
 } from "@kaiisuuwii/plugins";
 import { createGraphId, vec2 } from "@kaiisuuwii/shared";
@@ -16,7 +20,11 @@ describe("plugins public api", () => {
       "sample-executable-node-plugin",
       "sample-executable-renderer-plugin",
       "sample-annotation-node-plugin",
-      "sample-annotation-renderer-plugin"
+      "sample-annotation-renderer-plugin",
+      "note-node-plugin",
+      "note-renderer-plugin",
+      "thumbnail-node-plugin",
+      "thumbnail-renderer-plugin"
     ]);
   });
 
@@ -98,5 +106,61 @@ describe("plugins public api", () => {
 
     expect(annotation.type).toBe("annotation");
     expect(annotationPlan.nodes.find((node) => node.id === annotation.id)?.pluginVisuals.length).toBe(1);
+
+    const textEngine = createCoreEngine({
+      plugins: [createTextNodePlugin()]
+    });
+    const note = textEngine.createNode({
+      type: "note",
+      position: vec2(20, 20),
+      label: "Note",
+      properties: {
+        body: {
+          kind: "text",
+          value: "Wrapped body text for plugin coverage."
+        }
+      }
+    });
+    const notePlan = createSkiaRenderPlan({
+      snapshot: textEngine.getSnapshot(),
+      interaction: { onEvent: () => undefined },
+      viewport: {
+        width: 800,
+        height: 600
+      },
+      plugins: [createTextRendererPlugin()],
+      resolveNodeType: textEngine.getNodeType
+    });
+
+    expect(note.type).toBe("note");
+    expect(notePlan.nodes.find((node) => node.id === note.id)?.textContentItems).toHaveLength(1);
+
+    const imageEngine = createCoreEngine({
+      plugins: [createImageNodePlugin()]
+    });
+    const thumbnail = imageEngine.createNode({
+      type: "thumbnail",
+      position: vec2(30, 30),
+      label: "Image",
+      properties: {
+        image: {
+          kind: "image",
+          uri: "data:image/png;base64,AAAA"
+        }
+      }
+    });
+    const thumbnailPlan = createSkiaRenderPlan({
+      snapshot: imageEngine.getSnapshot(),
+      interaction: { onEvent: () => undefined },
+      viewport: {
+        width: 800,
+        height: 600
+      },
+      plugins: [createImageRendererPlugin()],
+      resolveNodeType: imageEngine.getNodeType
+    });
+
+    expect(thumbnail.type).toBe("thumbnail");
+    expect(thumbnailPlan.nodes.find((node) => node.id === thumbnail.id)?.imageContentItems).toHaveLength(1);
   });
 });

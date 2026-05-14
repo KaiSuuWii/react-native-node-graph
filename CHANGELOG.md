@@ -1180,4 +1180,392 @@ This sprint completes the cyclic execution surface for `@kaiisuuwii/core`, wires
   - divergence at `maxIterations`
   - non-numeric `Infinity` deltas
   - deterministic repeated runs
-  - stepped execution and cancellation
+- stepped execution and cancellation
+
+# Sprint 12 Changes Log
+
+## Summary
+
+This sprint adds rich node body text through a shared `TextContent` contract, renderer-side text measurement and layout, inline text editing in the Skia editor controller, a note-node plugin pair, and example coverage for wrapped and truncated text nodes.
+
+## Shared text contracts
+
+- Added `TextContent`, `TextMeasurer`, `TextMeasureOptions`, and `TextMeasureResult` to `packages/shared/src/index.ts`.
+- Added `createFallbackTextMeasurer()` using fixed-width estimation for wrapping and truncation when no platform measurer is supplied.
+- Added `isTextContent()` for runtime detection of text-property payloads.
+
+## Core metadata and serialization
+
+- Extended `NodeTypeDefinition` with optional `textProperties` so node registries can declare which properties carry `TextContent`.
+- Verified graph export/import continues to preserve text-property payloads as plain JSON objects without special serialization rules.
+
+## Skia renderer and editor
+
+- Added `RendererTextTheme`, `TextContentItem`, `TextEditCommitEvent`, and text-editing fields on `RendererInteractionState`.
+- Added `createSkiaTextMeasurer()` with cached fallback measurement behavior.
+- Extended node layout generation to:
+  - measure `TextContent` properties declared by node types
+  - stack measured text blocks inside node bodies
+  - auto-expand node height when text content exceeds the minimum body height
+  - expose editable text bounds for hit testing and inline edit focus
+- Extended hit testing with `text-content` targets when pointer input lands inside measured text bounds.
+- Added editor text editing methods:
+  - `beginTextEdit`
+  - `updateEditingValue`
+  - `setEditingSelection`
+  - `commitTextEdit`
+  - `cancelTextEdit`
+  - `isEditing`
+- Updated double-tap behavior so measured text regions can enter inline edit mode and commit through undoable `engine.updateNode(...)` mutations.
+
+## SVG renderer
+
+- Extended SVG node layout generation to measure `TextContent` using the shared measurer contract.
+- Updated SVG node element creation to emit `<text>` plus `<tspan>` children for wrapped text lines, including font weight/style and clipping within the node body region.
+
+## Plugins and examples
+
+- Added `createTextNodePlugin()` registering a `note` node type with `textProperties: ["body"]`.
+- Added `createTextRendererPlugin()` decorating `note` nodes with note-specific styling and a `NOTE` badge.
+- Added `TEXT_NODES_GRAPH_EXAMPLE_DOCUMENT` and `text-nodes-graph` to the public example fixtures.
+- Added `createTextNodesScreen()` demonstrating measured Skia text layout plus SVG serialization for note nodes.
+
+## Tests added and updated
+
+- Added shared coverage for fallback measurement and `isTextContent()`.
+- Added core serialization coverage to verify `TextContent` round-trips through export/import.
+- Added Skia layout, hit-testing, and editor coverage for:
+  - measured text bounds
+  - node auto-height
+  - text-region hit testing
+  - inline edit begin/commit/cancel behavior
+  - undo after committed text edits
+- Added SVG coverage for `<tspan>` output and text styling.
+- Updated plugin and example smoke coverage for the note plugin pair and text node example screen.
+
+# Sprint 13 Changes Log
+
+## Summary
+
+This sprint adds image content support across the shared contracts, Skia and SVG renderers, plugins, and examples so nodes can carry inline thumbnails with explicit loading states.
+
+## Shared and core contracts
+
+- Added `ImageContent`, `ImageLoadState`, and `isImageContent()` to `packages/shared/src/index.ts`.
+- Extended `NodeTypeDefinition` with `imageProperties` so node registries can declare which properties should be treated as image content.
+- Added core round-trip coverage verifying base64 image payloads survive `exportGraph()` and `importGraph()` intact.
+
+## Renderer Skia
+
+- Added `packages/renderer-skia/src/image-cache.ts` with:
+  - `RendererImageCache`
+  - `CachedImage`
+  - `createRendererImageCache()`
+  - bounded LRU eviction support
+- Added `packages/renderer-skia/src/image-loader.ts` with:
+  - `ImageLoader`
+  - `ImageLoaderOptions`
+  - `createImageLoader()`
+  - loading, deduped in-flight requests, retry, timeout, and disposal behavior
+- Extended Skia renderer types and theme with:
+  - `ImageContentItem`
+  - `RendererImageTheme`
+  - `imageCache` and `imageLoader` editor/render-plan hooks
+- Updated node layout generation to:
+  - discover `imageProperties`
+  - resolve image display bounds and opacity
+  - surface `idle`, `loading`, `loaded`, and `error` states in `imageContentItems`
+  - auto-expand node height when stacked image content exceeds the original body height
+- Updated the graph editor to:
+  - subscribe visible image URIs through `ImageLoader`
+  - invalidate the host on cache state changes
+  - dispose image subscriptions, loader state, and cache contents cleanly
+
+## Renderer SVG
+
+- Extended the SVG type model with:
+  - image content items on node layouts
+  - `SvgTitle`
+  - image opacity support
+  - image-theme defaults
+- Updated SVG node layout and element creation to:
+  - discover `imageProperties`
+  - emit `<image>` elements for loaded image content
+  - emit placeholder rects for non-loaded states
+  - emit clip paths for rounded image corners
+  - map fit modes to `preserveAspectRatio`
+  - emit `<title>` nodes for image alt text when available
+
+## Plugins and examples
+
+- Added `createImageNodePlugin()` registering a `thumbnail` node type with `imageProperties: ["image"]`.
+- Added `createImageRendererPlugin()` decorating thumbnail nodes with image-specific styling and an `IMG` badge.
+- Added `IMAGE_NODES_GRAPH_EXAMPLE_DOCUMENT` and the `image-nodes-graph` example manifest entry.
+- Added `createImageNodesScreen()` returning Skia and SVG outputs for inline, loading, and error image states.
+
+## Tests added and updated
+
+- Added shared coverage for `isImageContent()`.
+- Added Skia cache and loader coverage for:
+  - LRU eviction
+  - immediate loading-state emission
+  - deduped concurrent loads
+  - retry-to-error behavior
+- Added Skia layout and editor coverage for:
+  - image content bounds
+  - image-driven node auto-height
+  - editor disposal of image loader resources
+- Added SVG coverage for `<image>` emission, rounded clipping, and `preserveAspectRatio="xMidYMid slice"` for `fit: "cover"`.
+- Updated plugin and example smoke tests for the thumbnail plugin pair and image example screen.
+
+## Verified checkpoints
+
+The following validations pass from the repository root:
+
+- `npx tsc -p tsconfig.json --noEmit --composite false --incremental false`
+- `npx vitest run --configLoader runner --cache false packages/shared/tests/shared.test.ts packages/core/tests/core-engine.test.ts packages/renderer-skia/tests/layout.test.ts packages/renderer-skia/tests/editor.test.ts packages/renderer-skia/tests/image-cache.test.ts packages/renderer-skia/tests/image-loader.test.ts packages/renderer-svg/tests/svg-renderer.test.ts packages/plugins/tests/smoke.test.ts packages/examples/tests/smoke.test.ts`
+
+# Sprint 14 Changes Log
+
+## Summary
+
+This sprint adds the new `@kaiisuuwii/react-native` workspace package, a testable `NodeGraphCanvas` integration surface, animated camera and drag controllers, gesture composition, connection-wire and selection-pulse helpers, and an example screen that exercises the new wrapper against the existing Skia renderer/editor stack.
+
+## New package: `@kaiisuuwii/react-native`
+
+- Added `packages/react-native/` as a publishable workspace package with:
+  - public npm metadata
+  - dependencies on `@kaiisuuwii/core`, `@kaiisuuwii/renderer-skia`, and `@kaiisuuwii/shared`
+  - peer dependencies for `react`, `react-native`, `@shopify/react-native-skia`, `react-native-gesture-handler`, and `react-native-reanimated`
+- Added package TypeScript configs with:
+  - `lib: ["ES2022"]`
+  - `jsx: "react-native"`
+
+## React Native integration surface
+
+- Added `packages/react-native/src/types.ts` covering:
+  - `NodeGraphCanvasProps`
+  - `SpringConfig`
+  - `AnimatedCameraState`
+  - `GraphEditorAnimationState`
+  - drag, gesture, and canvas handle contracts
+- Added lightweight runtime adapters in `packages/react-native/src/runtime.ts` so the package remains testable in this workspace without hard native runtime imports while still exposing RN-oriented state shapes.
+
+## Camera, drag, gesture, and animation helpers
+
+- Added `useCamera()` with animated pan, focal-point-preserving zoom, momentum application, and plain camera projection.
+- Added `useDragNode()` with graph-space drag tracking, optional grid snapping, and commit-through-`engine.updateNode(...)`.
+- Added `useGraphEditor()` to compose the Skia graph editor with animated camera, drag, connection-wire, and selection-pulse state.
+- Added `createNodeGraphGestures()` with single tap, double tap, long press, pan, and pinch gesture descriptors routed to the existing renderer-skia editor behavior.
+- Added `useConnectionWire()` and `useSelectionPulse()` helpers for animated interaction overlays.
+
+## Canvas wrapper and examples
+
+- Added `NodeGraphCanvas()` as a canvas integration handle that:
+  - subscribes to engine mutation and selection events
+  - rebuilds render plans on changes
+  - exposes the composed gestures and text-edit commit path
+  - disposes subscriptions and editor resources cleanly
+- Added `createAnimatedEditorScreen()` in `@kaiisuuwii/examples` using the new canvas wrapper with the `small-graph` fixture and executable plugin pair.
+- Updated the examples manifest to include `animated-editor-screen`.
+
+## Workspace wiring and tests
+
+- Registered `@kaiisuuwii/react-native` in:
+  - `tsconfig.base.json`
+  - `tsconfig.json`
+  - `tsconfig.build.json`
+  - `vitest.config.ts`
+  - root publish and clean scripts
+- Updated architecture coverage so the new package is treated as publishable.
+- Added React Native package coverage for:
+  - `useCamera().toPlain()`
+  - focal-point zoom invariants
+  - drag commit and grid snapping
+  - connection-wire cleanup
+  - tap, double-tap, pan, and pinch gesture routing
+  - empty-graph canvas creation
+  - canvas re-render on engine mutation
+  - forbidden import boundaries
+
+# Sprint 15 Changes Log
+
+## Summary
+
+This sprint adds the new `@kaiisuuwii/persistence` workspace package with auto-save orchestration, four storage adapters, conflict handling, adapter indexing, an example round-trip screen, and the metadata preservation needed for `savedAt` to survive import/export flows.
+
+## New package: `@kaiisuuwii/persistence`
+
+- Added `packages/persistence/` as a publishable workspace package with:
+  - public npm metadata
+  - dependencies on `@kaiisuuwii/core` and `@kaiisuuwii/shared`
+  - no renderer, React, or React Native dependencies
+- Added package TypeScript configs, public entrypoint wiring, and README scaffolding.
+- Registered `@kaiisuuwii/persistence` in:
+  - `tsconfig.base.json`
+  - `tsconfig.json`
+  - `tsconfig.build.json`
+  - `vitest.config.ts`
+  - root publish and clean scripts
+
+## Persistence controller and adapters
+
+- Added `packages/persistence/src/types.ts` covering:
+  - `PersistenceAdapter`
+  - `PersistenceSaveRecord`
+  - `PersistenceConflictStrategy`
+  - `PersistenceConflictError`
+  - `GraphPersistenceOptions`
+  - `GraphPersistence`
+  - adapter-side structural interfaces for AsyncStorage and file systems
+  - `AdapterIndex`
+- Added `createGraphPersistence()` in `packages/persistence/src/persistence.ts` with:
+  - debounced auto-save subscriptions for `nodeAdded`, `nodeRemoved`, `edgeCreated`, `edgeDeleted`, and `selectionChanged`
+  - explicit `load()`, `save()`, `delete()`, and `dispose()` lifecycle handling
+  - `last-write-wins`, `skip-if-newer`, and `throw` conflict strategies
+  - `savedAt` metadata injection during save
+  - `isSaving()` and `isPendingAutoSave()` status reporting
+- Added concrete adapters in `packages/persistence/src/adapters/`:
+  - `createAsyncStorageAdapter()`
+  - `createLocalStorageAdapter()`
+  - `createFileSystemAdapter()`
+  - `createMemoryAdapter()`
+- Added `createAdapterIndex()` for cached document-record refresh, lookup, and recent-list sorting.
+
+## Core metadata and examples
+
+- Updated shared/core metadata cloning so persisted metadata extensions such as `savedAt` are preserved instead of being stripped during snapshot normalization.
+- Extended `@kaiisuuwii/examples` to depend on `@kaiisuuwii/persistence`.
+- Added `createPersistenceExampleScreen()` to:
+  - save a graph through the memory adapter
+  - trigger debounced persistence from a real engine event
+  - load the saved document into a second engine
+  - report node-count round-trip and the generated `savedAt` timestamp
+- Added `persistence-example` to the examples manifest and smoke coverage.
+
+## Tests added and updated
+
+- Added `packages/persistence/tests/persistence.test.ts` covering:
+  - memory adapter save/load/exists behavior
+  - AsyncStorage keying, listing, and deletion
+  - LocalStorage key prefixes and corrupt JSON handling
+  - file-system missing-file and `.json` listing behavior
+  - auto-save debounce timing
+  - rapid-mutation coalescing
+  - dispose-time timer cancellation
+  - `savedAt` injection
+  - all three conflict strategies
+  - `onSaveError` and `onLoadError`
+  - full save/load round-trip into a fresh engine
+  - adapter index recent sorting
+- Added `packages/persistence/tests/architecture.test.ts` and updated root package-boundary coverage so the new package remains isolated from renderers and platform packages.
+- Updated `packages/examples/tests/smoke.test.ts` for the new persistence example screen.
+
+## Verified checkpoints
+
+The following validations pass from the repository root:
+
+- `npx tsc -p packages/persistence/tsconfig.json --noEmit --composite false --incremental false`
+- `npx vitest run --configLoader runner --cache false packages/persistence/tests/persistence.test.ts packages/persistence/tests/architecture.test.ts packages/examples/tests/smoke.test.ts tests/architecture/package-boundaries.test.ts`
+
+# Sprint 16 Changes Log
+
+## Summary
+
+This sprint adds the new `@kaiisuuwii/sync` workspace package, a bidirectional engine-to-Yjs bridge, offline mutation queuing, lightweight presence broadcasting, renderer-skia presence overlays, and an in-process sync example proving two engines can converge on the same graph.
+
+## New package: `@kaiisuuwii/sync`
+
+- Added `packages/sync/` as a publishable workspace package with:
+  - public npm metadata
+  - dependencies on `@kaiisuuwii/core` and `@kaiisuuwii/shared`
+  - `yjs` peer dependency plus optional `y-websocket` and `y-webrtc` provider peers
+  - no renderer, React, or React Native dependencies
+- Added package TypeScript configs, public entrypoint wiring, provider module declarations, and README scaffolding.
+- Registered `@kaiisuuwii/sync` in:
+  - `tsconfig.base.json`
+  - `tsconfig.json`
+  - `tsconfig.build.json`
+  - `vitest.config.ts`
+  - root publish and clean scripts
+
+## Sync controller and bridge
+
+- Added `packages/sync/src/types.ts` covering:
+  - `SyncConnectionState`
+  - `SyncPresence`
+  - `SyncAwareness`
+  - `SyncAdapter`
+  - `GraphSyncOptions`
+  - `GraphSync`
+  - `SyncConflict`
+  - `YjsGraphDocument`
+  - `OfflineQueue`
+  - `EngineBridge`
+- Added `createYjsGraphDocument()` to build the shared Yjs graph model with `nodes`, `edges`, `groups`, `metadata`, and `schema` maps.
+- Added `createEngineBridge()` with:
+  - local engine method interception for node create/update/delete, edge create/delete, and graph load/import
+  - remote Yjs observers that apply node and edge changes back into `CoreEngine`
+  - snapshot seeding and full graph replacement helpers
+  - node and edge serialization helpers:
+    - `nodeToYjsMap()`
+    - `yjsMapToNodeInput()`
+    - `edgeToYjsMap()`
+    - `yjsMapToEdgeInput()`
+- Added `createOfflineQueue()` with bounded FIFO storage, overflow dropping of the oldest entry, and ordered flush into the bridge.
+- Added `createSyncAwareness()` with room-scoped presence tracking for:
+  - user identity
+  - cursor position
+  - selected node IDs
+  - selected edge IDs
+  - connected and last-active timestamps
+- Added `createGraphSync()` with:
+  - adapter-driven connect and disconnect lifecycle
+  - reconnect scheduling
+  - offline queue integration
+  - initial Yjs seeding or remote snapshot import
+  - local selection mirroring into awareness
+  - cursor updates through `updateCursorPosition()`
+
+## Provider adapters and examples
+
+- Added `createWebSocketSyncAdapter()` and `createWebRTCSyncAdapter()` with dynamic optional-provider loading and normalized connection-state events.
+- Extended `@kaiisuuwii/examples` to depend on `@kaiisuuwii/sync` and reference the new package in its project graph.
+- Added an in-process `createSyncExampleScreen()` that:
+  - creates two engines with a shared room ID
+  - connects them through an in-memory Yjs transport
+  - creates a node on client 1
+  - confirms client 2 receives the node
+  - confirms remote presence is visible
+- Added `sync-example` to the examples manifest and smoke/integration coverage.
+
+## Renderer presence overlays
+
+- Added `SyncPresenceOverlay` to `@kaiisuuwii/renderer-skia`.
+- Extended `NodeGraphRendererProps` and `BuildSceneOptions` with optional `presenceOverlays`.
+- Added a dedicated `presence` scene layer containing:
+  - remote cursor markers with initials and tooltip positions
+  - dashed remote selection rings around selected nodes
+- Exported the new presence layer and overlay types from `packages/renderer-skia/src/index.ts`.
+
+## Tests added and updated
+
+- Added `packages/sync/tests/sync.test.ts` covering:
+  - node and edge Yjs serialization round-trips
+  - engine-to-Yjs bridge writes
+  - Yjs-to-engine bridge reads
+  - echo prevention for remote-applied changes
+  - offline queue overflow behavior
+  - offline queue FIFO flushing
+  - awareness local and remote presence behavior
+  - two-client in-process convergence with reconnect and offline mutations
+- Added `packages/sync/tests/architecture.test.ts` and updated root package-boundary coverage so the new package remains isolated from renderers and platform packages.
+- Updated `packages/renderer-skia/tests/scene.test.ts` for the new `presence` layer and presence overlay rendering.
+- Updated `packages/examples/tests/smoke.test.ts` and `packages/examples/tests/integration.test.ts` for the new sync example screen.
+
+## Verified checkpoints
+
+The following validations pass from the repository root:
+
+- `npm run typecheck --workspace @kaiisuuwii/sync`
+- `npx vitest run packages/sync/tests/sync.test.ts packages/renderer-skia/tests/scene.test.ts packages/examples/tests/smoke.test.ts packages/examples/tests/integration.test.ts tests/architecture/package-boundaries.test.ts`

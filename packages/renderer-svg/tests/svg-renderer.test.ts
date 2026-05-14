@@ -1,5 +1,5 @@
 import { createGraphSnapshot } from "@kaiisuuwii/core";
-import { vec2 } from "@kaiisuuwii/shared";
+import { createFallbackTextMeasurer, vec2 } from "@kaiisuuwii/shared";
 import { describe, expect, it } from "vitest";
 
 import { computeSvgViewBox, createSvgCameraState } from "../src/camera.js";
@@ -157,6 +157,81 @@ describe("createSvgNodeElements", () => {
 
     expect(svg).toContain('aria-label=');
     expect(svg).toContain("My Node");
+  });
+
+  it("emits tspan lines for text content items", () => {
+    const node = {
+      id: "node_note_1" as const,
+      type: "note",
+      position: vec2(0, 0),
+      dimensions: vec2(220, 90),
+      label: "Note",
+      ports: [],
+      properties: {
+        body: {
+          kind: "text",
+          value: "Wrapped note body text for SVG output coverage.",
+          fontStyle: "italic",
+          maxLines: 3
+        }
+      },
+      groupId: undefined
+    };
+    const layout = buildNodeLayout(node, LIGHT_SVG_THEME, false, {
+      resolveNodeType: () => ({
+        type: "note",
+        textProperties: ["body"]
+      }),
+      measurer: createFallbackTextMeasurer()
+    });
+    const elements = createSvgNodeElements(layout, LIGHT_SVG_THEME, {
+      enabled: true,
+      addAriaLabels: true,
+      addTitleElements: false,
+      addRoleAttributes: true
+    });
+    const svg = elements.map(serializeSvgElement).join("");
+
+    expect(svg).toContain("<tspan");
+    expect(svg).toContain("font-style=\"italic\"");
+  });
+
+  it("emits image elements with preserveAspectRatio for image content items", () => {
+    const node = {
+      id: "node_image_1" as const,
+      type: "thumbnail",
+      position: vec2(0, 0),
+      dimensions: vec2(220, 120),
+      label: "Image Node",
+      ports: [],
+      properties: {
+        image: {
+          kind: "image",
+          uri: "data:image/png;base64,AAAA",
+          fit: "cover",
+          borderRadius: 8,
+          alt: "Inline image"
+        }
+      },
+      groupId: undefined
+    };
+    const layout = buildNodeLayout(node, LIGHT_SVG_THEME, false, {
+      resolveNodeType: () => ({
+        type: "thumbnail",
+        imageProperties: ["image"]
+      })
+    });
+    const elements = createSvgNodeElements(layout, LIGHT_SVG_THEME, {
+      enabled: true,
+      addAriaLabels: true,
+      addTitleElements: true,
+      addRoleAttributes: true
+    });
+    const svg = elements.map(serializeSvgElement).join("");
+
+    expect(svg).toContain("<image");
+    expect(svg).toContain('preserveAspectRatio="xMidYMid slice"');
+    expect(svg).toContain("<title>Inline image</title>");
   });
 });
 

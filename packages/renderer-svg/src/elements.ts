@@ -8,6 +8,7 @@ import type {
   SvgPath,
   SvgRect,
   SvgText,
+  SvgTitle,
   SvgTspan
 } from "./types.js";
 
@@ -74,6 +75,11 @@ export const svgImage = (props: Omit<SvgImage, "kind">): SvgImage => ({
   ...props
 });
 
+export const svgTitle = (content: string): SvgTitle => ({
+  kind: "title",
+  content
+});
+
 export const svgGroup = (
   children: readonly SvgElement[],
   props?: Partial<Omit<SvgGroup, "kind" | "children">>
@@ -88,11 +94,12 @@ export const svgClipRect = (
   x: number,
   y: number,
   width: number,
-  height: number
+  height: number,
+  radius = 0
 ): SvgClipPath => ({
   kind: "clipPath",
   id,
-  children: [{ kind: "rect", x, y, width, height }]
+  children: [{ kind: "rect", x, y, width, height, rx: radius, ry: radius }]
 });
 
 export const bezierPathD = (curve: SvgCubicBezierCurve): string =>

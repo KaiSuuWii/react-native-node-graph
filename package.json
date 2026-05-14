@@ -25,12 +25,12 @@
     "benchmark:renderer": "vitest run packages/renderer-skia/tests/performance-benchmark.test.ts",
     "benchmark:layout": "vitest run packages/layout/benchmarks/layout-benchmark.ts",
     "release:check": "npm run typecheck && npm run lint && npm run test && npm run benchmark:renderer",
-    "publish:dry-run": "npm run build && npm pack --dry-run --workspace @kaiisuuwii/shared --workspace @kaiisuuwii/core --workspace @kaiisuuwii/renderer-skia --workspace @kaiisuuwii/renderer-svg --workspace @kaiisuuwii/renderer-web --workspace @kaiisuuwii/plugins --workspace @kaiisuuwii/layout",
-    "publish:public": "npm publish --workspace @kaiisuuwii/shared && npm publish --workspace @kaiisuuwii/core && npm publish --workspace @kaiisuuwii/renderer-skia && npm publish --workspace @kaiisuuwii/renderer-svg && npm publish --workspace @kaiisuuwii/renderer-web && npm publish --workspace @kaiisuuwii/plugins && npm publish --workspace @kaiisuuwii/layout",
+    "publish:dry-run": "npm run build && npm pack --dry-run --workspace @kaiisuuwii/shared --workspace @kaiisuuwii/core --workspace @kaiisuuwii/renderer-skia --workspace @kaiisuuwii/renderer-svg --workspace @kaiisuuwii/renderer-web --workspace @kaiisuuwii/plugins --workspace @kaiisuuwii/react-native --workspace @kaiisuuwii/layout --workspace @kaiisuuwii/sync --workspace @kaiisuuwii/persistence",
+    "publish:public": "npm publish --workspace @kaiisuuwii/shared && npm publish --workspace @kaiisuuwii/core && npm publish --workspace @kaiisuuwii/renderer-skia && npm publish --workspace @kaiisuuwii/renderer-svg && npm publish --workspace @kaiisuuwii/renderer-web && npm publish --workspace @kaiisuuwii/plugins && npm publish --workspace @kaiisuuwii/react-native && npm publish --workspace @kaiisuuwii/layout && npm publish --workspace @kaiisuuwii/sync && npm publish --workspace @kaiisuuwii/persistence",
     "release:publish:public": "npm run release:check && npm run build && npm run publish:public",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "clean": "node --eval \"import('node:fs/promises').then(async fs => { for (const path of ['packages/core/dist','packages/core/.tsbuildinfo','packages/renderer-skia/dist','packages/renderer-skia/.tsbuildinfo','packages/renderer-svg/dist','packages/renderer-svg/.tsbuildinfo','packages/renderer-web/dist','packages/renderer-web/.tsbuildinfo','packages/shared/dist','packages/shared/.tsbuildinfo','packages/examples/dist','packages/examples/.tsbuildinfo','packages/plugins/dist','packages/plugins/.tsbuildinfo','packages/docs/dist','packages/docs/.tsbuildinfo','packages/layout/dist','packages/layout/.tsbuildinfo','coverage']) { await fs.rm(path, { recursive: true, force: true }); } })\""
+    "clean": "node --eval \"import('node:fs/promises').then(async fs => { for (const path of ['packages/core/dist','packages/core/.tsbuildinfo','packages/renderer-skia/dist','packages/renderer-skia/.tsbuildinfo','packages/renderer-svg/dist','packages/renderer-svg/.tsbuildinfo','packages/renderer-web/dist','packages/renderer-web/.tsbuildinfo','packages/shared/dist','packages/shared/.tsbuildinfo','packages/examples/dist','packages/examples/.tsbuildinfo','packages/plugins/dist','packages/plugins/.tsbuildinfo','packages/docs/dist','packages/docs/.tsbuildinfo','packages/react-native/dist','packages/react-native/.tsbuildinfo','packages/layout/dist','packages/layout/.tsbuildinfo','packages/sync/dist','packages/sync/.tsbuildinfo','packages/persistence/dist','packages/persistence/.tsbuildinfo','coverage']) { await fs.rm(path, { recursive: true, force: true }); } })\""
   },
   "devDependencies": {
     "@types/node": "^24.0.1",
@@ -40,6 +40,7 @@
     "eslint-config-prettier": "^10.1.2",
     "prettier": "^3.5.3",
     "typescript": "^5.8.3",
-    "vitest": "^3.1.3"
+    "vitest": "^3.1.3",
+    "yjs": "^13.6.22"
   }
 }

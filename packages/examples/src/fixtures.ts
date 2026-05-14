@@ -8,6 +8,9 @@ import type {
 import { createGraphSnapshot } from "@kaiisuuwii/core";
 import { vec2 } from "@kaiisuuwii/shared";
 
+const IMAGE_NODE_DATA_URI =
+  "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZ2h0PSIxNiIgdmlld0JveD0iMCAwIDE2IDE2Ij48cmVjdCB3aWR0aD0iMTYiIGhlaWdodD0iMTYiIGZpbGw9IiMwMjg0YzciLz48Y2lyY2xlIGN4PSI4IiBjeT0iOCIgcj0iNCIgZmlsbD0iI2ZmZmZmZiIvPjwvc3ZnPg==";
+
 type PipelineNodeInput = NodeInput & {
   readonly id: `node_${string}`;
 };
@@ -625,6 +628,156 @@ export const CYCLIC_GRAPH_EXAMPLE_DOCUMENT = createDocument(
   }
 );
 
+export const TEXT_NODES_GRAPH_EXAMPLE_DOCUMENT = createDocument(
+  "graph_text_nodes",
+  "Text Nodes Graph",
+  ["text", "note"],
+  {
+    id: "graph_text_nodes",
+    metadata: {
+      name: "Text Nodes Graph",
+      version: "0.1.0",
+      tags: [],
+      createdAtIso: "2026-05-12T00:00:00.000Z"
+    },
+    nodes: [
+      {
+        id: "node_note_plain",
+        type: "note",
+        position: vec2(120, 100),
+        dimensions: vec2(240, 120),
+        label: "Plain Note",
+        properties: {
+          body: {
+            kind: "text",
+            value: "Short body copy for the first note node.",
+            maxLines: 0
+          }
+        },
+        ports: []
+      },
+      {
+        id: "node_note_bold",
+        type: "note",
+        position: vec2(420, 120),
+        dimensions: vec2(260, 132),
+        label: "Bold Note",
+        properties: {
+          body: {
+            kind: "text",
+            value: "Bold emphasis with a little more room for wrapping.",
+            fontWeight: "bold",
+            maxLines: 0
+          }
+        },
+        ports: []
+      },
+      {
+        id: "node_note_long",
+        type: "note",
+        position: vec2(760, 90),
+        dimensions: vec2(260, 124),
+        label: "Long Note",
+        properties: {
+          body: {
+            kind: "text",
+            value:
+              "This note intentionally contains a much longer body so the renderer has to wrap the content and truncate it after three lines when the body exceeds the configured maximum.",
+            fontStyle: "italic",
+            maxLines: 3
+          }
+        },
+        ports: []
+      }
+    ],
+    edges: [],
+    groups: [],
+    selection: {
+      nodeIds: ["node_note_plain"],
+      edgeIds: [],
+      groupIds: [],
+      activeSelectionMode: "node"
+    }
+  }
+);
+
+export const IMAGE_NODES_GRAPH_EXAMPLE_DOCUMENT = createDocument(
+  "graph_image_nodes",
+  "Image Nodes Graph",
+  ["image", "thumbnail"],
+  {
+    id: "graph_image_nodes",
+    metadata: {
+      name: "Image Nodes Graph",
+      version: "0.2.0",
+      tags: [],
+      createdAtIso: "2026-05-12T00:00:00.000Z"
+    },
+    nodes: [
+      {
+        id: "node_image_inline",
+        type: "thumbnail",
+        position: vec2(120, 120),
+        dimensions: vec2(220, 160),
+        label: "Inline Image",
+        properties: {
+          image: {
+            kind: "image",
+            uri: IMAGE_NODE_DATA_URI,
+            alt: "Inline thumbnail",
+            fit: "cover",
+            borderRadius: 8,
+            height: 96
+          }
+        },
+        ports: []
+      },
+      {
+        id: "node_image_network",
+        type: "thumbnail",
+        position: vec2(420, 120),
+        dimensions: vec2(220, 160),
+        label: "Network Image",
+        properties: {
+          image: {
+            kind: "image",
+            uri: "https://example.com/node-thumbnail.png",
+            alt: "Network thumbnail",
+            fit: "contain",
+            height: 96
+          }
+        },
+        ports: []
+      },
+      {
+        id: "node_image_error",
+        type: "thumbnail",
+        position: vec2(720, 120),
+        dimensions: vec2(220, 160),
+        label: "Broken Image",
+        properties: {
+          image: {
+            kind: "image",
+            uri: "https://invalid.localhost/404.png",
+            alt: "Broken thumbnail",
+            fit: "fill",
+            height: 96
+          }
+        },
+        ports: []
+      }
+    ],
+    edges: [],
+    groups: [],
+    selection: {
+      nodeIds: ["node_image_inline"],
+      edgeIds: [],
+      groupIds: [],
+      activeSelectionMode: "node"
+    }
+  }
+);
+
 export const EXAMPLE_FIXTURES = {
   "small-graph": SMALL_GRAPH_EXAMPLE_DOCUMENT,
   "medium-graph": MEDIUM_GRAPH_EXAMPLE_DOCUMENT,
@@ -634,7 +787,9 @@ export const EXAMPLE_FIXTURES = {
   "plugin-example": PLUGIN_EXAMPLE_DOCUMENT,
   "svg-static-export": SVG_STATIC_EXPORT_DOCUMENT,
   "layout-demo": LAYOUT_DEMO_DOCUMENT,
-  "cyclic-graph": CYCLIC_GRAPH_EXAMPLE_DOCUMENT
+  "cyclic-graph": CYCLIC_GRAPH_EXAMPLE_DOCUMENT,
+  "text-nodes-graph": TEXT_NODES_GRAPH_EXAMPLE_DOCUMENT,
+  "image-nodes-graph": IMAGE_NODES_GRAPH_EXAMPLE_DOCUMENT
 } as const;
 
 export type ExampleFixtureId = keyof typeof EXAMPLE_FIXTURES;

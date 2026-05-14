@@ -39,6 +39,20 @@ const snapshot = createGraphSnapshot({
       label: "Sink",
       groupId: "group_hit",
       ports: [{ id: "port_sink_in", name: "in", direction: "input" }]
+    },
+    {
+      id: createNodeId("hit-note"),
+      type: "note",
+      position: vec2(100, 260),
+      dimensions: vec2(220, 96),
+      label: "Note",
+      properties: {
+        body: {
+          kind: "text",
+          value: "Hit test body text coverage."
+        }
+      },
+      ports: []
     }
   ],
   edges: [
@@ -60,6 +74,13 @@ describe("renderer-skia hit testing", () => {
     camera: { position: vec2(0, 0), zoom: 1 },
     theme: DEFAULT_RENDERER_THEME,
     plugins: [],
+    resolveNodeType: (type) =>
+      type === "note"
+        ? {
+            type: "note",
+            textProperties: ["body"]
+          }
+        : undefined,
     interaction: { onEvent: vi.fn() },
     interactionOptions: {
       panEnabled: true,
@@ -105,6 +126,24 @@ describe("renderer-skia hit testing", () => {
 
     expect(hit.target.kind).toBe("port");
     expect(hit.target.kind === "port" ? hit.target.portId : "").toBe("port_source_out");
+  });
+
+  it("returns a text content hit for points inside measured text bounds", () => {
+    const noteLayout = scene.layers.find((layer) => layer.kind === "node")?.kind === "node"
+      ? scene.layers.find((layer) => layer.kind === "node")!.items.find((item) => item.type === "note")
+      : undefined;
+    const bounds = noteLayout?.textContentItems[0]?.bounds;
+
+    expect(bounds).toBeDefined();
+
+    const hit = hitTestScenePoint(
+      scene,
+      index,
+      vec2((bounds!.min.x + bounds!.max.x) / 2, bounds!.min.y + 4)
+    );
+
+    expect(hit.target.kind).toBe("text-content");
+    expect(hit.target.kind === "text-content" ? hit.target.propertyKey : "").toBe("body");
   });
 
   it("hits edges by sampled curve distance", () => {

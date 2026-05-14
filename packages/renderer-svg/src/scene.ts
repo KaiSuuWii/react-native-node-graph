@@ -168,7 +168,15 @@ export const buildSvgRenderScene = (options: SvgBuildSceneOptions): SvgRenderPla
 
   const nodeLayouts: SvgNodeLayout[] = visibleNodeSnapshots.map((node) => {
     const isSelected = options.snapshot.selection.nodeIds.includes(node.id);
-    let layout = buildNodeLayout(node, options.theme, isSelected);
+    let layout = buildNodeLayout(node, options.theme, isSelected, {
+      ...(options.resolveNodeType !== undefined
+        ? { resolveNodeType: options.resolveNodeType }
+        : {}),
+      ...(options.measurer !== undefined ? { measurer: options.measurer } : {}),
+      ...(options.resolveImageState !== undefined
+        ? { resolveImageState: options.resolveImageState }
+        : {})
+    });
 
     options.plugins.forEach((plugin) => {
       try {

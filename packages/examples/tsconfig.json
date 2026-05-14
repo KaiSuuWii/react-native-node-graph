@@ -23,7 +23,16 @@
       "path": "../plugins"
     },
     {
+      "path": "../react-native"
+    },
+    {
       "path": "../layout"
+    },
+    {
+      "path": "../sync"
+    },
+    {
+      "path": "../persistence"
     }
   ],
   "include": ["src/**/*.ts"],

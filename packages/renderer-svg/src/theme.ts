@@ -22,6 +22,12 @@ export const LIGHT_SVG_THEME: SvgTheme = {
   groupFillColor: "rgba(63, 94, 88, 0.10)",
   groupBorderColor: "#3f5e58",
   groupBorderWidth: 1.5,
+  image: {
+    placeholderColor: "#e2e8f0",
+    errorColor: "#fca5a5",
+    loadingIndicatorColor: "#94a3b8",
+    defaultImageHeight: 80
+  },
   mode: "light"
 };
 
@@ -47,6 +53,12 @@ export const DARK_SVG_THEME: SvgTheme = {
   groupFillColor: "rgba(106, 161, 148, 0.16)",
   groupBorderColor: "#6aa194",
   groupBorderWidth: 1.5,
+  image: {
+    placeholderColor: "#334155",
+    errorColor: "#fca5a5",
+    loadingIndicatorColor: "#94a3b8",
+    defaultImageHeight: 80
+  },
   mode: "dark"
 };
 
